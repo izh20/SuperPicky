@@ -365,7 +365,14 @@ class YOLOBirdDetector:
                 square.paste(cropped, (paste_x, paste_y))
                 cropped = square
 
-            info = f"conf={best['confidence']:.3f}, size={cropped.size}"
+            info = {
+                'detected': True,
+                'confidence': best['confidence'],
+                'bbox': best['bbox'],           # [x1, y1, x2, y2] in original image coords
+                'img_size': [img_width, img_height],
+                'crop_size': list(cropped.size),
+                'bird_count': len(detections),
+            }
 
             return cropped, info
 
