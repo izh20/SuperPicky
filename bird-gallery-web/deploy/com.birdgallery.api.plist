@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.birdgallery.api</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/zhouheng/claude/SuperPicky/bird-gallery-web/backend/.venv/bin/uvicorn</string>
+        <string>main:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8000</string>
+        <string>--workers</string>
+        <string>1</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/zhouheng/claude/SuperPicky/bird-gallery-web/backend</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/birdgallery-api.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/birdgallery-api-error.log</string>
+</dict>
+</plist>

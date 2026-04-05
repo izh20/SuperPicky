@@ -121,3 +121,10 @@ docs/Promotion/
 # 构建输出目录output
 output/
 docs/superpowers/
+
+# Bird Gallery Web 运行时数据
+bird-gallery-web/data/
+bird-gallery-web/frontend/dist/
+bird-gallery-web/frontend/node_modules/
+bird-gallery-web/backend/.venv/
+tsconfig.tsbuildinfo
