@@ -12,6 +12,7 @@ export const usePhotoStore = defineStore('photos', () => {
   const filters = reactive<PhotoFilters>({
     page: 1,
     page_size: 60,
+    confidence_min: 70,
   })
 
   async function fetchPhotos(reset = false) {
@@ -45,6 +46,9 @@ export const usePhotoStore = defineStore('photos', () => {
       q: undefined, species: undefined, camera: undefined,
       rating_min: undefined, rating_max: undefined,
       date_from: undefined, date_to: undefined,
+      has_gps: undefined, has_flying: undefined,
+      recognized: undefined,
+      confidence_min: 70,
       page: 1, page_size: 60,
     })
   }

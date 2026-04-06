@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from models.database import get_db, get_db_connection
 from services.video_processor import synthesize_burst_video
 from app_config_pkg import config as app_config
+from api.auth import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,11 @@ def _detect_bursts_task(task_id: str, threshold: float, min_count: int):
             "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (task_id,),
         )
+        db.commit()
+
+        # 清理旧的连拍组数据（重新检测）
+        db.execute("DELETE FROM burst_group_photos")
+        db.execute("DELETE FROM burst_groups")
         db.commit()
 
         # 获取所有照片的拍摄时间（按时间排序）
@@ -104,7 +110,7 @@ def _detect_bursts_task(task_id: str, threshold: float, min_count: int):
                 logger.warning("Burst date parse error: prev=%s curr=%s err=%s", prev["date_taken"], curr["date_taken"], exc)
                 delta = 999
 
-            if same_camera and 0 < delta <= threshold:
+            if same_camera and 0 <= delta <= threshold:
                 current_group.append(curr)
             else:
                 if len(current_group) >= min_count:
@@ -164,23 +170,183 @@ def _create_burst_group(db, photos: list):
 @router.get("/bursts")
 async def list_bursts(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(1000, ge=1, le=10000),
+    species: str | None = None,
+    camera: str | None = None,
+    rating_min: int | None = None,
+    min_photos: int = Query(1, ge=1),
+    has_flying: bool = False,
+    flying_min_count: int = Query(1, ge=1),
     db=Depends(get_db),
 ):
-    """列出所有连拍组。"""
-    total = db.execute("SELECT COUNT(*) FROM burst_groups").fetchone()[0]
+    """列出所有连拍组（支持筛选）。"""
+    where_clauses = []
+    params: list = []
+
+    if min_photos > 1:
+        where_clauses.append("actual_count >= ?")
+        params.append(min_photos)
+    if species:
+        where_clauses.append("""bg.id IN (
+            SELECT bgp_s.group_id FROM burst_group_photos bgp_s
+            JOIN photo_birds pb_s ON pb_s.photo_id = bgp_s.photo_id AND pb_s.rank = 1
+            WHERE pb_s.species_cn = ? AND pb_s.confidence >= 70
+        )""")
+        params.append(species)
+    if camera:
+        where_clauses.append("""bg.id IN (
+            SELECT bgp_c.group_id FROM burst_group_photos bgp_c
+            JOIN photo_metadata pm_c ON pm_c.photo_id = bgp_c.photo_id
+            WHERE pm_c.camera_model = ?
+        )""")
+        params.append(camera)
+    if rating_min is not None:
+        where_clauses.append("""bg.id IN (
+            SELECT bgp_r.group_id FROM burst_group_photos bgp_r
+            JOIN photo_scores ps_r ON ps_r.photo_id = bgp_r.photo_id
+            WHERE ps_r.rating >= ?
+        )""")
+        params.append(rating_min)
+    if has_flying:
+        where_clauses.append("""bg.id IN (
+            SELECT bgp_f.group_id FROM burst_group_photos bgp_f
+            JOIN photo_scores ps_f ON ps_f.photo_id = bgp_f.photo_id
+            WHERE ps_f.is_flying = 1
+            GROUP BY bgp_f.group_id
+            HAVING COUNT(*) >= ?
+        )""")
+        params.append(flying_min_count)
+
+    # 子查询先计算 actual_count，外层再 HAVING 过滤
+    having = f"HAVING actual_count >= {min_photos}" if min_photos > 1 else ""
+    # 移除 min_photos 的 where（在 HAVING 中处理）
+    where_sql = ""
+    filter_params: list = []
+    for i, clause in enumerate(where_clauses):
+        if "actual_count" not in clause:
+            if where_sql:
+                where_sql += " AND "
+            where_sql += clause
+            filter_params.append(params[i])
+
+    where_prefix = f"WHERE {where_sql}" if where_sql else ""
+
+    # 计算总数
+    count_sql = f"""
+        SELECT COUNT(*) FROM (
+            SELECT bg.id, COUNT(bgp.photo_id) as actual_count
+            FROM burst_groups bg
+            LEFT JOIN burst_group_photos bgp ON bg.id = bgp.group_id
+            {where_prefix}
+            GROUP BY bg.id
+            {having}
+        )
+    """
+    total = db.execute(count_sql, filter_params).fetchone()[0]
     offset = (page - 1) * page_size
 
-    rows = db.execute("""
-        SELECT bg.*, COUNT(bgp.photo_id) as actual_count
+    query_params = list(filter_params)
+    rows = db.execute(f"""
+        SELECT bg.*, COUNT(bgp.photo_id) as actual_count,
+               COALESCE(bg.best_photo_id,
+                 (SELECT bgp2.photo_id FROM burst_group_photos bgp2
+                  WHERE bgp2.group_id = bg.id LIMIT 1)
+               ) as cover_photo_id,
+               (SELECT pb.species_cn FROM burst_group_photos bgp3
+                JOIN photo_birds pb ON pb.photo_id = bgp3.photo_id AND pb.rank = 1
+                WHERE bgp3.group_id = bg.id
+                GROUP BY pb.species_cn ORDER BY COUNT(*) DESC LIMIT 1
+               ) as top_species_cn
         FROM burst_groups bg
         LEFT JOIN burst_group_photos bgp ON bg.id = bgp.group_id
+        {where_prefix}
         GROUP BY bg.id
+        {having}
         ORDER BY bg.created_at DESC
         LIMIT ? OFFSET ?
-    """, (page_size, offset)).fetchall()
+    """, query_params + [page_size, offset]).fetchall()
 
-    return {"total": total, "page": page, "groups": [dict(r) for r in rows]}
+    groups = []
+    for r in rows:
+        d = dict(r)
+        if not d.get("best_photo_id"):
+            d["best_photo_id"] = d.get("cover_photo_id")
+        d.pop("cover_photo_id", None)
+        # 用动态查询的鸟种覆盖空的 species_cn
+        if not d.get("species_cn") and d.get("top_species_cn"):
+            d["species_cn"] = d["top_species_cn"]
+        d.pop("top_species_cn", None)
+        groups.append(d)
+
+    return {"total": total, "page": page, "groups": groups}
+
+
+@router.get("/bursts/filter-options")
+async def burst_filter_options(
+    confidence_min: float = Query(70.0, ge=0, le=100),
+    db=Depends(get_db),
+):
+    """返回连拍组可用的筛选项（按置信度过滤鸟种）。"""
+    species_rows = db.execute("""
+        SELECT DISTINCT pb.species_cn FROM burst_group_photos bgp
+        JOIN photo_birds pb ON pb.photo_id = bgp.photo_id AND pb.rank = 1
+        WHERE pb.species_cn IS NOT NULL AND pb.confidence >= ?
+        ORDER BY pb.species_cn
+    """, (confidence_min,)).fetchall()
+
+    camera_rows = db.execute("""
+        SELECT DISTINCT pm.camera_model FROM burst_group_photos bgp
+        JOIN photo_metadata pm ON pm.photo_id = bgp.photo_id
+        WHERE pm.camera_model IS NOT NULL AND pm.camera_model != ''
+        ORDER BY pm.camera_model
+    """).fetchall()
+
+    return {
+        "species": [r["species_cn"] for r in species_rows],
+        "cameras": [r["camera_model"] for r in camera_rows],
+    }
+
+
+class BurstBatchDeleteRequest(BaseModel):
+    group_ids: list[str]
+
+
+@router.post("/bursts/batch-delete", dependencies=[Depends(require_admin)])
+async def batch_delete_bursts(req: BurstBatchDeleteRequest, db=Depends(get_db)):
+    """批量删除连拍组及其所有照片（包括磁盘文件）。"""
+    from api.photos import _delete_photo_files
+
+    deleted_groups = 0
+    deleted_photos = 0
+    file_map: dict[str, str] = {}
+
+    for gid in req.group_ids:
+        photos = db.execute(
+            "SELECT p.id, p.original_path FROM burst_group_photos bgp JOIN photos p ON p.id = bgp.photo_id WHERE bgp.group_id = ?",
+            (gid,),
+        ).fetchall()
+
+        for photo in photos:
+            pid = photo["id"]
+            file_map[pid] = photo["original_path"]
+            db.execute("DELETE FROM photo_metadata WHERE photo_id = ?", (pid,))
+            db.execute("DELETE FROM photo_scores WHERE photo_id = ?", (pid,))
+            db.execute("DELETE FROM photo_birds WHERE photo_id = ?", (pid,))
+            db.execute("DELETE FROM photo_tags WHERE photo_id = ?", (pid,))
+            db.execute("DELETE FROM duplicate_groups WHERE photo_id = ?", (pid,))
+            db.execute("DELETE FROM burst_group_photos WHERE photo_id = ?", (pid,))
+            db.execute("DELETE FROM photos WHERE id = ?", (pid,))
+            deleted_photos += 1
+
+        db.execute("DELETE FROM burst_groups WHERE id = ?", (gid,))
+        deleted_groups += 1
+
+    db.commit()
+
+    for pid, path in file_map.items():
+        _delete_photo_files(pid, path)
+
+    return {"deleted_groups": deleted_groups, "deleted_photos": deleted_photos}
 
 
 @router.get("/bursts/{group_id}")
@@ -244,13 +410,19 @@ async def recognize_burst(
     background_tasks: BackgroundTasks,
     db=Depends(get_db),
 ):
-    """批量识别连拍照片。"""
+    """批量识别连拍组中未识别的照片。"""
     photos = db.execute(
-        "SELECT photo_id FROM burst_group_photos WHERE group_id = ?",
+        """SELECT bgp.photo_id FROM burst_group_photos bgp
+           LEFT JOIN photo_birds pb ON pb.photo_id = bgp.photo_id
+           WHERE bgp.group_id = ? AND pb.id IS NULL""",
         (group_id,),
     ).fetchall()
     if not photos:
-        raise HTTPException(404, "Burst group not found or empty")
+        # 检查组是否存在
+        grp = db.execute("SELECT id FROM burst_groups WHERE id = ?", (group_id,)).fetchone()
+        if not grp:
+            raise HTTPException(404, "Burst group not found")
+        return {"id": None, "task_id": None, "total": 0}
 
     task_id = str(uuid.uuid4())
     db.execute(
@@ -265,7 +437,54 @@ async def recognize_burst(
     from api.photos import _batch_recognize_task
     background_tasks.add_task(_batch_recognize_task, task_id, photo_ids)
 
-    return {"id": task_id, "task_id": task_id}
+    return {"id": task_id, "task_id": task_id, "total": len(photo_ids)}
+
+
+@router.post("/bursts/recognize-all")
+async def recognize_all_bursts(
+    background_tasks: BackgroundTasks,
+    db=Depends(get_db),
+):
+    """一键识别所有连拍组中未识别的照片。"""
+    # 防止重复
+    existing = db.execute(
+        "SELECT id FROM tasks WHERE type = 'recognize_all_bursts' AND status = 'running'"
+    ).fetchone()
+    if existing:
+        total = db.execute(
+            """SELECT COUNT(*) FROM burst_group_photos bgp
+               LEFT JOIN photo_birds pb ON pb.photo_id = bgp.photo_id
+               WHERE pb.id IS NULL"""
+        ).fetchone()[0]
+        return {"id": existing["id"], "task_id": existing["id"], "total": total}
+
+    rows = db.execute(
+        """SELECT DISTINCT bgp.photo_id FROM burst_group_photos bgp
+           LEFT JOIN photo_birds pb ON pb.photo_id = bgp.photo_id
+           WHERE pb.id IS NULL"""
+    ).fetchall()
+    photo_ids = [r["photo_id"] for r in rows]
+
+    if not photo_ids:
+        task_id = str(uuid.uuid4())
+        db.execute(
+            "INSERT INTO tasks (id, type, status, progress) VALUES (?, 'recognize_all_bursts', 'done', 100)",
+            (task_id,),
+        )
+        db.commit()
+        return {"id": task_id, "task_id": task_id, "total": 0}
+
+    task_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO tasks (id, type, status) VALUES (?, 'recognize_all_bursts', 'pending')",
+        (task_id,),
+    )
+    db.commit()
+
+    from api.photos import _batch_recognize_task
+    background_tasks.add_task(_batch_recognize_task, task_id, photo_ids)
+
+    return {"id": task_id, "task_id": task_id, "total": len(photo_ids)}
 
 
 @router.post("/bursts/{group_id}/synthesize")
@@ -351,4 +570,8 @@ async def get_burst_video(group_id: str, db=Depends(get_db)):
     if not group["video_path"] or not os.path.exists(group["video_path"]):
         raise HTTPException(404, "Video not yet synthesized")
 
-    return FileResponse(group["video_path"], media_type="video/mp4")
+    return FileResponse(
+        group["video_path"],
+        media_type="video/mp4",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )

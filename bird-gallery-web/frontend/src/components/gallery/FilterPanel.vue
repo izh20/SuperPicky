@@ -74,6 +74,24 @@
       </div>
     </div>
 
+    <!-- 置信度 -->
+    <div>
+      <label class="block text-gray-500 mb-1">
+        识别置信度 ≥ <strong class="text-gray-700">{{ confidenceVal }}%</strong>
+      </label>
+      <input
+        type="range"
+        :value="confidenceVal"
+        min="0" max="100" step="5"
+        class="w-full accent-primary-600"
+        @input="onConfidenceInput(($event.target as HTMLInputElement).value)"
+      />
+      <div class="flex justify-between text-xs text-gray-400 mt-0.5">
+        <span>0%</span>
+        <span>100%</span>
+      </div>
+    </div>
+
     <!-- GPS -->
     <div class="flex items-center gap-2">
       <input
@@ -83,6 +101,32 @@
         @change="emit('update', 'has_gps', ($event.target as HTMLInputElement).checked || undefined)"
       />
       <label class="text-gray-500">仅含 GPS 信息</label>
+    </div>
+
+    <!-- 飞版筛选 -->
+    <div class="flex items-center gap-2">
+      <input
+        type="checkbox"
+        :checked="modelValue.has_flying ?? false"
+        class="accent-primary-600"
+        @change="emit('update', 'has_flying', ($event.target as HTMLInputElement).checked || undefined)"
+      />
+      <label class="text-gray-500">仅看飞版</label>
+    </div>
+
+    <!-- 识别状态 -->
+    <div>
+      <label class="block text-gray-500 mb-1">识别状态</label>
+      <select
+        :value="modelValue.recognized ?? ''"
+        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:border-primary-500 focus:outline-none bg-white"
+        @change="emit('update', 'recognized', ($event.target as HTMLSelectElement).value || undefined)"
+      >
+        <option value="">全部</option>
+        <option value="yes">已识别到鸟</option>
+        <option value="no">未识别</option>
+        <option value="no_bird">无鸟（已处理）</option>
+      </select>
     </div>
 
     <!-- 重置 -->
@@ -96,11 +140,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import type { PhotoFilters } from '@/types'
 import { photoAPI } from '@/api/photos'
 
-defineProps<{
+const props = defineProps<{
   modelValue: PhotoFilters
 }>()
 
@@ -115,13 +159,26 @@ const options = ref<{ species: string[]; cameras: string[]; dates: string[] }>({
   dates: [],
 })
 
-onMounted(async () => {
+const confidenceVal = computed(() => props.modelValue.confidence_min ?? 70)
+
+onMounted(() => fetchOptions(confidenceVal.value))
+
+async function fetchOptions(confMin: number) {
   try {
-    options.value = await photoAPI.filterOptions()
+    options.value = await photoAPI.filterOptions(confMin)
   } catch {
-    // 静默失败，筛选选项为空但不阻塞页面
+    // 静默失败
   }
-})
+}
+
+let _confTimer: ReturnType<typeof setTimeout> | null = null
+function onConfidenceInput(val: string) {
+  const num = Number(val)
+  emit('update', 'confidence_min', num)
+  // 防抖刷新鸟种列表
+  if (_confTimer) clearTimeout(_confTimer)
+  _confTimer = setTimeout(() => fetchOptions(num), 300)
+}
 
 function onDateSelect(val: string) {
   if (val) {

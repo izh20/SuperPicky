@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS photo_scores (
     nima_score   REAL,
     is_flying    INTEGER,
     focus_status TEXT,
-    exposure_status TEXT
+    exposure_status TEXT,
+    keypoints_json TEXT
 );
 
 -- 视频
@@ -238,6 +239,7 @@ def init_db():
             conn.executescript(INDEX_SQL)
             # 迁移：给已有 users 表增加 role 列
             _migrate_add_role_column(conn)
+            _migrate_add_keypoints_column(conn)
             conn.commit()
             _ensure_admin_user(conn)
         finally:
@@ -269,6 +271,14 @@ def _migrate_add_role_column(conn: sqlite3.Connection):
         # 将已有的 admin 用户提升为管理员
         conn.execute("UPDATE users SET role = 'admin' WHERE username = 'admin'")
         _logger.info("已迁移 users 表：添加 role 列")
+
+
+def _migrate_add_keypoints_column(conn: sqlite3.Connection):
+    """迁移：给已有 photo_scores 表增加 keypoints_json 列（幂等）。"""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(photo_scores)").fetchall()]
+    if "keypoints_json" not in cols:
+        conn.execute("ALTER TABLE photo_scores ADD COLUMN keypoints_json TEXT")
+        _logger.info("已迁移 photo_scores 表：添加 keypoints_json 列")
 
 
 def _ensure_admin_user(conn: sqlite3.Connection):

@@ -154,6 +154,34 @@ def generate_all_thumbnails(file_path: str, photo_id: str) -> dict[str, str | No
     return results
 
 
+def generate_preview_jpeg(file_path: str, photo_id: str) -> str | None:
+    """从 RAW 文件提取全分辨率内嵌 JPEG 缓存，供 AI 推理使用。
+    
+    非 RAW 文件返回 None（直接用原图即可）。
+    已存在时直接返回路径。
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in _RAW_EXTENSIONS:
+        return None
+
+    preview_path = os.path.join(get_thumbnail_dir(photo_id), "preview.jpg")
+    if os.path.exists(preview_path):
+        return preview_path
+
+    img = _open_image(file_path)
+    if img is None:
+        return None
+
+    img = _fix_orientation(img)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+
+    # 保留完整分辨率，质量 95
+    img.save(preview_path, "JPEG", quality=95)
+    logger.info("Generated preview JPEG for %s (%dx%d)", photo_id, img.width, img.height)
+    return preview_path
+
+
 def get_image_dimensions(file_path: str) -> tuple[int, int] | None:
     """获取图片宽高，支持 RAW 格式。"""
     ext = os.path.splitext(file_path)[1].lower()

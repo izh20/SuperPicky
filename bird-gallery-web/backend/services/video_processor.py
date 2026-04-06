@@ -248,37 +248,110 @@ def synthesize_burst_video(
     framerate: int = 20,
     resolution: str = "1920x1080",
 ) -> bool:
-    """将连拍照片序列合成为 H.264 MP4。"""
+    """将连拍照片序列合成为 H.264 MP4。
+
+    支持 RAW 格式（ARW 等）：先提取内嵌 JPEG 预览，再用 FFmpeg 合成。
+    """
     import tempfile
+    import shutil
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # 使用 concat demuxer file list
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
-        for img_path in image_paths:
-            f.write(f"file '{img_path}'\n")
-            f.write(f"duration {1.0 / framerate}\n")
-        # 最后一帧也需要 duration
-        if image_paths:
-            f.write(f"file '{image_paths[-1]}'\n")
-        list_path = f.name
+    # RAW 扩展名集合
+    RAW_EXTS = {'.arw', '.cr2', '.cr3', '.nef', '.orf', '.raf', '.rw2', '.dng', '.pef', '.srw'}
 
-    w, h = resolution.split("x")
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0", "-i", list_path,
-        "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        output_path,
-    ]
-
+    # 如果包含 RAW 文件，需要先提取为 JPEG
+    temp_dir = None
+    resolved_paths = []
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=300, start_new_session=True)
-        return result.returncode == 0
-    except Exception as e:
-        logger.error("Burst synthesis failed: %s", e)
-        return False
+        has_raw = any(os.path.splitext(p)[1].lower() in RAW_EXTS for p in image_paths)
+
+        if has_raw:
+            temp_dir = tempfile.mkdtemp(prefix="burst_synth_")
+            for idx, img_path in enumerate(image_paths):
+                ext = os.path.splitext(img_path)[1].lower()
+                if ext in RAW_EXTS:
+                    jpg_path = os.path.join(temp_dir, f"frame_{idx:05d}.jpg")
+                    if _extract_raw_to_jpeg(img_path, jpg_path):
+                        resolved_paths.append(jpg_path)
+                    else:
+                        logger.warning("Skipping RAW file that cannot be extracted: %s", img_path)
+                else:
+                    resolved_paths.append(img_path)
+        else:
+            resolved_paths = image_paths
+
+        if not resolved_paths:
+            logger.error("No valid images after RAW extraction")
+            return False
+
+        # 使用 concat demuxer file list
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            for img_path in resolved_paths:
+                f.write(f"file '{img_path}'\n")
+                f.write(f"duration {1.0 / framerate}\n")
+            # 最后一帧也需要 duration
+            if resolved_paths:
+                f.write(f"file '{resolved_paths[-1]}'\n")
+            list_path = f.name
+
+        w, h = resolution.split("x")
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0", "-i", list_path,
+            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            output_path,
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=600, start_new_session=True)
+            if result.returncode != 0:
+                logger.error("FFmpeg burst synthesis failed: %s", result.stderr[-1000:] if result.stderr else "")
+            return result.returncode == 0
+        except Exception as e:
+            logger.error("Burst synthesis failed: %s", e)
+            return False
+        finally:
+            os.unlink(list_path)
     finally:
-        os.unlink(list_path)
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _extract_raw_to_jpeg(raw_path: str, out_jpeg: str) -> bool:
+    """从 RAW 文件提取内嵌 JPEG 预览，保存到指定路径。"""
+    # 优先用 exiftool 提取 JpgFromRaw（全尺寸内嵌 JPEG）
+    for tag in ("-JpgFromRaw", "-PreviewImage"):
+        try:
+            result = subprocess.run(
+                ["exiftool", tag, "-b", raw_path],
+                capture_output=True, timeout=30,
+            )
+            if result.returncode == 0 and len(result.stdout) > 1000:
+                with open(out_jpeg, 'wb') as f:
+                    f.write(result.stdout)
+                return True
+        except Exception as e:
+            logger.warning("exiftool %s extraction failed for %s: %s", tag, raw_path, e)
+
+    # 回退：用 rawpy 提取
+    try:
+        import rawpy
+        from PIL import Image
+        with rawpy.imread(raw_path) as raw:
+            thumb = raw.extract_thumb()
+            if thumb.format == rawpy.ThumbFormat.JPEG:
+                with open(out_jpeg, 'wb') as f:
+                    f.write(thumb.data)
+                return True
+            elif thumb.format == rawpy.ThumbFormat.BITMAP:
+                img = Image.fromarray(thumb.data)
+                img.save(out_jpeg, "JPEG", quality=92)
+                return True
+    except Exception as e:
+        logger.warning("rawpy extraction failed for %s: %s", raw_path, e)
+
+    return False

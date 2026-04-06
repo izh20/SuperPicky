@@ -67,16 +67,30 @@ class ModelManager:
 
     def get_status(self) -> dict:
         """返回所有模型状态，供 /api/admin/metrics 使用。"""
+        # 检查 birdid 通过 LazyRegistry 加载的模型（yolo、osea）
+        birdid_loaded = {}
+        try:
+            from config import get_lazy_registry
+            registry = get_lazy_registry()
+            birdid_loaded["yolo"] = registry.get("birdid.yolo_detector") is not None
+            birdid_loaded["osea"] = registry.get("birdid.classifier") is not None
+        except Exception:
+            pass
+
         with self._lock:
             status = {}
             for name in ("yolo", "topiq", "keypoint", "osea"):
-                if name in self._models:
+                managed_loaded = name in self._models
+                external_loaded = birdid_loaded.get(name, False)
+                is_loaded = managed_loaded or external_loaded
+
+                if is_loaded:
                     status[name] = {
                         "loaded": True,
                         "last_used": time.strftime(
                             "%Y-%m-%dT%H:%M:%S",
                             time.localtime(self._last_used.get(name, 0)),
-                        ),
+                        ) if self._last_used.get(name) else None,
                     }
                 else:
                     last = self._last_used.get(name)

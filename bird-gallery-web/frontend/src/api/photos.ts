@@ -27,8 +27,8 @@ function mapPhotoDetail(raw: any): PhotoDetail {
 }
 
 export const photoAPI = {
-  filterOptions: (): Promise<{ species: string[]; cameras: string[]; dates: string[] }> =>
-    client.get('/photos/filter-options'),
+  filterOptions: (confidenceMin?: number): Promise<{ species: string[]; cameras: string[]; dates: string[] }> =>
+    client.get('/photos/filter-options', { params: confidenceMin != null ? { confidence_min: confidenceMin } : undefined }),
 
   list: (filters: PhotoFilters = {}): Promise<PhotoListResponse> =>
     client.get('/photos', { params: filters }),
@@ -112,4 +112,10 @@ export const photoAPI = {
 
   recalculateRatings: (): Promise<{ id: string; task_id: string; total: number }> =>
     client.post('/photos/recalculate-ratings'),
+
+  rescore: (): Promise<{ id: string; task_id: string; total: number }> =>
+    client.post('/photos/rescore'),
+
+  resetRecognition: (): Promise<{ deleted_birds: number; deleted_scores: number }> =>
+    client.post('/photos/reset-recognition'),
 }

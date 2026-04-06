@@ -1,7 +1,9 @@
 <template>
   <div
-    class="group relative rounded-lg overflow-hidden bg-gray-100 cursor-pointer"
+    class="relative rounded-lg overflow-hidden bg-gray-100 cursor-pointer"
     @click="emit('click')"
+    @mouseenter="hovered = true"
+    @mouseleave="hovered = false"
   >
     <div class="aspect-square">
       <img
@@ -11,11 +13,13 @@
         loading="lazy"
       />
     </div>
-    <div class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    <!-- 星级评分（始终显示，右下角） -->
+    <div class="absolute bottom-6 right-1 z-10 pointer-events-none">
       <StarRating :rating="photo.rating" />
     </div>
-    <!-- hover 详情 -->
-    <div class="absolute top-0 left-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-2 py-1.5 text-[10px] text-white/90 leading-relaxed pointer-events-none">
+    <!-- 评分详情（hover 显示） -->
+    <div v-show="hovered && hasInfo" class="absolute z-10 top-0 left-0 right-0 bg-black/60 px-2 py-1.5 text-[10px] text-white/90 leading-relaxed pointer-events-none">
+      <p v-if="photo.species_cn" class="font-medium text-[11px]">{{ photo.species_cn }}</p>
       <p v-if="photo.confidence != null">置信度 {{ photo.confidence.toFixed(1) }}%</p>
       <p v-if="photo.head_sharp != null">锐度 {{ photo.head_sharp.toFixed(1) }}</p>
       <p v-if="photo.nima_score != null">美学 {{ photo.nima_score.toFixed(2) }}</p>
@@ -39,10 +43,11 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import type { PhotoListItem } from '@/types'
 import StarRating from '@/components/common/StarRating.vue'
 
-defineProps<{
+const props = defineProps<{
   photo: PhotoListItem
   selectable?: boolean
   selected?: boolean
@@ -52,4 +57,9 @@ const emit = defineEmits<{
   (e: 'click'): void
   (e: 'toggle-select', id: string): void
 }>()
+
+const hovered = ref(false)
+const hasInfo = computed(() =>
+  props.photo.species_cn != null || props.photo.confidence != null || props.photo.head_sharp != null || props.photo.nima_score != null,
+)
 </script>

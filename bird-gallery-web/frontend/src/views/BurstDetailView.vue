@@ -12,6 +12,65 @@
         <span class="text-sm font-medium text-gray-700">连拍组 · {{ burst.photo_count }} 张</span>
       </div>
 
+      <!-- 识别进度条（与照片库一致） -->
+      <div v-if="recognizing" class="bg-white border border-emerald-200 rounded-lg p-4 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <Zap class="w-4 h-4 text-emerald-600 animate-pulse" />
+            <span class="text-sm font-medium text-gray-700">正在识别鸟类并评分…</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm font-mono text-emerald-600">{{ taskStore.recognizeProgress }}%</span>
+            <button
+              @click="stopRecognize"
+              class="flex items-center gap-1 px-2.5 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+            >
+              <Square class="w-3 h-3" />
+              停止
+            </button>
+          </div>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2.5">
+          <div
+            class="bg-emerald-500 h-2.5 rounded-full transition-all duration-300"
+            :style="{ width: taskStore.recognizeProgress + '%' }"
+          ></div>
+        </div>
+        <p class="text-xs text-gray-500 mt-1.5">{{ taskStore.recognizeStatusText }}</p>
+        <!-- 实时识别结果日志 -->
+        <div
+          v-if="taskStore.recognizeResults.length > 0"
+          ref="logEl"
+          class="mt-3 max-h-48 overflow-y-auto bg-gray-50 rounded border border-gray-100 p-2 space-y-0.5"
+        >
+          <div
+            v-for="(item, idx) in taskStore.recognizeResults"
+            :key="idx"
+            class="text-xs font-mono leading-5 flex items-center gap-1.5"
+          >
+            <template v-if="item.error">
+              <span class="text-red-500">✗</span>
+              <span class="text-gray-600 truncate">{{ item.filename }}</span>
+              <span class="text-red-400">— 识别失败</span>
+            </template>
+            <template v-else-if="item.species_cn">
+              <span class="text-emerald-500">✓</span>
+              <span class="text-gray-600 truncate">{{ item.filename }}</span>
+              <span class="text-gray-400">—</span>
+              <span class="text-emerald-700 font-medium">{{ item.species_cn }}</span>
+              <span v-if="item.rating != null && item.rating >= 0" class="text-amber-500">{{ '⭐'.repeat(item.rating) }}{{ item.rating === 0 ? '☆' : '' }}</span>
+              <span v-if="item.head_sharp != null" class="text-gray-400">锐度 {{ item.head_sharp }}</span>
+              <span v-if="item.nima_score != null" class="text-gray-400">美学 {{ item.nima_score }}</span>
+            </template>
+            <template v-else>
+              <span class="text-gray-400">○</span>
+              <span class="text-gray-600 truncate">{{ item.filename }}</span>
+              <span class="text-gray-400">— 未检测到鸟类</span>
+            </template>
+          </div>
+        </div>
+      </div>
+
       <!-- 帧列表（横向滚动）-->
       <div class="bg-white rounded-xl p-4 border border-gray-100">
         <h3 class="font-semibold text-gray-700 mb-3 text-sm">帧预览</h3>
@@ -58,8 +117,9 @@
             <button
               @click="recognize"
               :disabled="recognizing"
-              class="w-full py-1.5 bg-primary-600 text-white text-sm rounded hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              class="w-full py-1.5 bg-primary-600 text-white text-sm rounded hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
             >
+              <Zap class="w-4 h-4" />
               {{ recognizing ? '识别中…' : '批量识别此组' }}
             </button>
           </div>
@@ -103,7 +163,8 @@
             <video
               controls
               class="w-full rounded"
-              :src="burstAPI.videoUrl(burst.id)"
+              :key="videoVersion"
+              :src="`${burstAPI.videoUrl(burst.id)}?v=${videoVersion}`"
             />
             <a
               :href="burstAPI.videoUrl(burst.id)"
@@ -120,11 +181,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, Download } from 'lucide-vue-next'
+import { ArrowLeft, Download, Zap, Square } from 'lucide-vue-next'
 import { useBurstStore } from '@/stores/burstStore'
 import { useToastStore } from '@/stores/toastStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { burstAPI } from '@/api/bursts'
 import { taskAPI } from '@/api/admin'
 import Spinner from '@/components/common/Spinner.vue'
@@ -132,46 +194,76 @@ import Spinner from '@/components/common/Spinner.vue'
 const route = useRoute()
 const burstStore = useBurstStore()
 const toast = useToastStore()
+const taskStore = useTaskStore()
 const loading = ref(true)
 const selectedIdx = ref(0)
 const framerate = ref(20)
 const resolution = ref('1920x1080')
-const recognizing = ref(false)
 const synthesizing = ref(false)
 const synthProgress = ref(0)
 const videoReady = ref(false)
+const videoVersion = ref(0)
+const logEl = ref<HTMLElement | null>(null)
 
 const burst = computed(() => burstStore.current!)
 const currentPhoto = computed(() => burst.value?.photos?.[selectedIdx.value])
+const recognizing = computed(() => taskStore.recognizing)
+
+// 日志自动滚动到底部
+watch(() => taskStore.recognizeResults, () => {
+  nextTick(() => {
+    if (logEl.value) {
+      logEl.value.scrollTop = logEl.value.scrollHeight
+    }
+  })
+}, { deep: true })
 
 onMounted(async () => {
   try {
     await burstStore.fetchBurst(route.params.id as string)
-    // 检查是否已有合成视频
     videoReady.value = (burstStore.current as any)?.['video_path'] != null
   } finally {
     loading.value = false
   }
+  taskStore.resumeIfActive()
 })
 
 async function recognize() {
-  recognizing.value = true
+  if (taskStore.recognizing) return
   try {
-    const task = await burstAPI.recognize(burst.value.id)
-    toast.info('识别任务已提交')
-    await taskAPI.poll((task as any).task_id ?? task.id)
-    toast.success('识别完成')
-    await burstStore.fetchBurst(burst.value.id)
+    const res = await burstAPI.recognize(burst.value.id)
+    const total = (res as any).total ?? 0
+    if (total === 0) {
+      toast.info('此组所有照片已识别，无需重复操作')
+      return
+    }
+    const taskId = (res as any).task_id ?? (res as any).id
+    toast.info(`已提交识别任务（${total} 张待识别）`)
+    taskStore.startTracking(taskId, total)
+    const check = setInterval(() => {
+      if (!taskStore.recognizing) {
+        clearInterval(check)
+        if (taskStore.recognizeProgress >= 100 || !taskStore.recognizeTaskId) {
+          toast.success('识别完成')
+          burstStore.fetchBurst(burst.value.id)
+        }
+      }
+    }, 2000)
   } catch (e: any) {
     toast.error(e.message)
-  } finally {
-    recognizing.value = false
   }
+}
+
+async function stopRecognize() {
+  await taskStore.cancelRecognize()
+  toast.info('已停止识别任务')
+  burstStore.fetchBurst(burst.value.id)
 }
 
 async function synthesize() {
   synthesizing.value = true
   synthProgress.value = 0
+  videoReady.value = false
   try {
     const task = await burstAPI.synthesize(burst.value.id, framerate.value, resolution.value)
     toast.info('合成任务已提交')
@@ -186,6 +278,7 @@ async function synthesize() {
       }
       tick().catch(reject)
     })
+    videoVersion.value++
     videoReady.value = true
     toast.success('视频合成完成')
   } catch (e: any) {

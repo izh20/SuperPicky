@@ -11,7 +11,26 @@
             <ArrowLeft class="w-4 h-4" /> 返回
           </button>
           <span class="text-gray-300">|</span>
-          <span class="text-sm text-gray-500">{{ photo.filename }}</span>
+          <span class="text-sm text-gray-500 flex-1 truncate">{{ photo.filename }}</span>
+          <div class="flex items-center gap-1 ml-auto">
+            <button
+              :disabled="!prevId"
+              @click="goTo(prevId!)"
+              class="px-2 py-1 text-sm rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-500"
+              title="上一张"
+            >
+              <ChevronLeft class="w-4 h-4" />
+            </button>
+            <span class="text-xs text-gray-400">{{ currentIndex >= 0 ? `${currentIndex + 1}/${photoStore.items.length}` : '' }}</span>
+            <button
+              :disabled="!nextId"
+              @click="goTo(nextId!)"
+              class="px-2 py-1 text-sm rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-500"
+              title="下一张"
+            >
+              <ChevronRight class="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <!-- 图片 + 检测框 -->
@@ -49,12 +68,25 @@
         </div>
 
         <!-- 检测框切换 -->
-        <div class="flex items-center gap-2 text-sm text-gray-500" v-if="hasDetectionBoxes">
+        <div class="flex items-center gap-4 text-sm text-gray-500" v-if="hasDetectionBoxes">
           <label class="flex items-center gap-1 cursor-pointer">
             <input type="checkbox" v-model="showBoxes" class="rounded" />
             显示检测框
           </label>
         </div>
+
+        <!-- 过程标注图（自动显示，只要照片有识别结果） -->
+        <div v-if="hasBirds && !annotatedError" class="bg-gray-900 rounded-xl overflow-hidden flex items-center justify-center" style="min-height: 200px;">
+          <img
+            :src="`/api/photos/${photo.id}/annotated`"
+            :alt="`${photo.filename} - 标注图`"
+            class="max-w-full max-h-[50vh] object-contain"
+            @error="onAnnotatedError"
+          />
+        </div>
+        <p v-if="hasBirds && annotatedError" class="text-xs text-gray-400">
+          暂无标注数据，请重新识别该照片以生成过程图
+        </p>
 
         <!-- 操作栏 -->
         <div class="flex gap-2">
@@ -140,12 +172,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Cpu, Download, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, Cpu, Download, Trash2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { photoAPI } from '@/api/photos'
 import { useToastStore } from '@/stores/toastStore'
 import { useAuthStore } from '@/stores/authStore'
+import { usePhotoStore } from '@/stores/photoStore'
 import type { PhotoDetail } from '@/types'
 import Spinner from '@/components/common/Spinner.vue'
 import StarRating from '@/components/common/StarRating.vue'
@@ -155,19 +188,61 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToastStore()
 const authStore = useAuthStore()
+const photoStore = usePhotoStore()
 const photo = ref<PhotoDetail | null>(null)
 const loading = ref(true)
 const recognizing = ref(false)
 const imgEl = ref<HTMLImageElement | null>(null)
 const imgRect = ref<{ left: number; top: number; width: number; height: number } | null>(null)
 const showBoxes = ref(true)
+const annotatedError = ref(false)
+
+// 上下张导航
+const currentIndex = computed(() => {
+  if (!photo.value) return -1
+  return photoStore.items.findIndex(p => p.id === photo.value!.id)
+})
+const prevId = computed(() => {
+  const idx = currentIndex.value
+  return idx > 0 ? photoStore.items[idx - 1].id : null
+})
+const nextId = computed(() => {
+  const idx = currentIndex.value
+  return idx >= 0 && idx < photoStore.items.length - 1 ? photoStore.items[idx + 1].id : null
+})
+
+async function goTo(id: string) {
+  loading.value = true
+  annotatedError.value = false
+  try {
+    photo.value = await photoAPI.get(id)
+    router.replace(`/photos/${id}`)
+  } catch {
+    photo.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowLeft' && prevId.value) goTo(prevId.value)
+  else if (e.key === 'ArrowRight' && nextId.value) goTo(nextId.value)
+}
 
 const hasDetectionBoxes = computed(() =>
   photo.value?.birds?.some(b => b.detection_box?.length === 4) ?? false
 )
 
+const hasBirds = computed(() =>
+  (photo.value?.birds?.length ?? 0) > 0
+)
+
 function onImageLoad() {
   updateImgRect()
+}
+
+function onAnnotatedError() {
+  annotatedError.value = true
 }
 
 function updateImgRect() {
@@ -181,12 +256,25 @@ function updateImgRect() {
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
   try {
     photo.value = await photoAPI.get(route.params.id as string)
   } catch {
     photo.value = null
   } finally {
     loading.value = false
+  }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+// 快到列表末尾时预加载下一页
+watch(currentIndex, (idx) => {
+  if (idx >= 0 && idx >= photoStore.items.length - 3 && photoStore.items.length < photoStore.total) {
+    photoStore.nextPage()
+    photoStore.fetchPhotos()
   }
 })
 
@@ -197,6 +285,7 @@ async function recognize() {
     toast.info('识别中，请稍候…')
     await photoAPI.recognize(photo.value.id)
     photo.value = await photoAPI.get(photo.value.id)
+    annotatedError.value = false
     toast.success('识别完成')
   } catch (e: any) {
     toast.error(e.message)

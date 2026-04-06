@@ -87,7 +87,16 @@
               <Zap class="w-4 h-4 text-emerald-600 animate-pulse" />
               <span class="text-sm font-medium text-gray-700">正在识别鸟类并评分…</span>
             </div>
-            <span class="text-sm font-mono text-emerald-600">{{ recognizeProgress }}%</span>
+            <div class="flex items-center gap-3">
+              <span class="text-sm font-mono text-emerald-600">{{ recognizeProgress }}%</span>
+              <button
+                @click="stopRecognize"
+                class="flex items-center gap-1 px-2.5 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+              >
+                <Square class="w-3 h-3" />
+                停止
+              </button>
+            </div>
           </div>
           <div class="w-full bg-gray-200 rounded-full h-2.5">
             <div
@@ -98,6 +107,41 @@
           <p class="text-xs text-gray-500 mt-1.5">
             {{ recognizeStatusText }}
           </p>
+          <!-- 实时识别结果日志 -->
+          <div
+            v-if="recognizeResults.length > 0"
+            ref="logEl"
+            class="mt-3 max-h-48 overflow-y-auto bg-gray-50 rounded border border-gray-100 p-2 space-y-0.5"
+          >
+            <div
+              v-for="(item, idx) in recognizeResults"
+              :key="idx"
+              class="text-xs font-mono leading-5 flex items-center gap-1.5"
+            >
+              <template v-if="item.error">
+                <span class="text-red-500">✗</span>
+                <span class="text-gray-600 truncate">{{ item.filename }}</span>
+                <span class="text-red-400">— 识别失败</span>
+                <span v-if="item.elapsed" class="text-gray-300 ml-auto shrink-0">{{ item.elapsed }}s</span>
+              </template>
+              <template v-else-if="item.species_cn">
+                <span class="text-emerald-500">✓</span>
+                <span class="text-gray-600 truncate">{{ item.filename }}</span>
+                <span class="text-gray-400">—</span>
+                <span class="text-emerald-700 font-medium">{{ item.species_cn }}</span>
+                <span v-if="item.rating != null && item.rating >= 0" class="text-amber-500">{{ '⭐'.repeat(item.rating) }}{{ item.rating === 0 ? '☆' : '' }}</span>
+                <span v-if="item.head_sharp != null" class="text-gray-400">锐度 {{ item.head_sharp }}</span>
+                <span v-if="item.nima_score != null" class="text-gray-400">美学 {{ item.nima_score }}</span>
+                <span v-if="item.elapsed" class="text-gray-300 ml-auto shrink-0">{{ item.elapsed }}s</span>
+              </template>
+              <template v-else>
+                <span class="text-gray-400">○</span>
+                <span class="text-gray-600 truncate">{{ item.filename }}</span>
+                <span class="text-gray-400">— 未检测到鸟类</span>
+                <span v-if="item.elapsed" class="text-gray-300 ml-auto shrink-0">{{ item.elapsed }}s</span>
+              </template>
+            </div>
+          </div>
         </div>
 
         <Spinner v-if="photoStore.loading && photoStore.items.length === 0" />
@@ -174,12 +218,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { LayoutGrid, List, Cpu, Zap, CheckSquare, Trash2 } from 'lucide-vue-next'
+import { LayoutGrid, List, Cpu, Zap, CheckSquare, Trash2, Square } from 'lucide-vue-next'
 import { usePhotoStore } from '@/stores/photoStore'
 import { useToastStore } from '@/stores/toastStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { photoAPI } from '@/api/photos'
 import { taskAPI } from '@/api/admin'
 import FilterPanel from '@/components/gallery/FilterPanel.vue'
@@ -195,23 +240,28 @@ const route = useRoute()
 const authStore = useAuthStore()
 const photoStore = usePhotoStore()
 const toastStore = useToastStore()
+const taskStore = useTaskStore()
 const scrollEl = ref<HTMLElement | null>(null)
+const logEl = ref<HTMLElement | null>(null)
 const viewMode = ref<'grid' | 'list'>('grid')
 const selected = ref<Set<string>>(new Set())
 const selectMode = ref(false)
 const deleting = ref(false)
-const recognizing = ref(false)
-const recognizeProgress = ref(0)
-const recognizeTotal = ref(0)
 
-const recognizeStatusText = computed(() => {
-  if (recognizeProgress.value >= 100) return '即将完成…'
-  if (recognizeTotal.value > 0) {
-    const done = Math.round(recognizeTotal.value * recognizeProgress.value / 100)
-    return `已处理 ${done} / ${recognizeTotal.value} 张（每张照片需加载 AI 模型进行关键点检测和美学评分）`
-  }
-  return '正在提交识别任务…'
-})
+// 从全局 taskStore 引用识别状态
+const recognizing = computed(() => taskStore.recognizing)
+const recognizeProgress = computed(() => taskStore.recognizeProgress)
+const recognizeStatusText = computed(() => taskStore.recognizeStatusText)
+const recognizeResults = computed(() => taskStore.recognizeResults)
+
+// 日志自动滚动到底部
+watch(recognizeResults, () => {
+  nextTick(() => {
+    if (logEl.value) {
+      logEl.value.scrollTop = logEl.value.scrollHeight
+    }
+  })
+}, { deep: true })
 
 const gridStyle = computed(() => ({
   gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
@@ -243,6 +293,8 @@ onMounted(async () => {
     photoStore.setFilter('q', String(route.query.q))
   }
   await photoStore.fetchPhotos(true)
+  // 恢复识别进度轮询（如果之前在其他页面时任务仍在运行）
+  taskStore.resumeIfActive()
 })
 
 function onFilterUpdate(key: string, val: any) {
@@ -331,39 +383,35 @@ async function batchRecognize() {
 }
 
 async function recognizeAll() {
-  recognizing.value = true
-  recognizeProgress.value = 0
+  if (taskStore.recognizing) return  // 已有任务运行中
   try {
     const res = await photoAPI.recognizeAll()
     if (res.total === 0) {
       toastStore.info('所有照片已识别，无需重复操作')
-      recognizing.value = false
       return
     }
-    toastStore.info(`已提交识别任务（${res.total} 张待识别）`)
-    recognizeTotal.value = res.total
     const taskId = res.id ?? res.task_id
-    await new Promise<void>((resolve, reject) => {
-      const tick = async () => {
-        try {
-          const t = await taskAPI.get(taskId)
-          recognizeProgress.value = t.progress ?? 0
-          if (t.status === 'done') return resolve()
-          if (t.status === 'error') return reject(new Error(t.error_msg || '识别失败'))
-          setTimeout(tick, 1500)
-        } catch (e) {
-          reject(e)
+    toastStore.info(`已提交识别任务（${res.total} 张待识别）`)
+    taskStore.startTracking(taskId, res.total)
+    // 后台轮询由 taskStore 管理，这里监听完成
+    const check = setInterval(() => {
+      if (!taskStore.recognizing) {
+        clearInterval(check)
+        if (taskStore.recognizeProgress >= 100 || !taskStore.recognizeTaskId) {
+          toastStore.success('全部识别完成')
+          photoStore.fetchPhotos(true)
         }
       }
-      tick()
-    })
-    toastStore.success('全部识别完成')
-    photoStore.fetchPhotos(true)
+    }, 2000)
   } catch (e: any) {
     toastStore.error(e.message)
-  } finally {
-    recognizing.value = false
   }
+}
+
+async function stopRecognize() {
+  await taskStore.cancelRecognize()
+  toastStore.info('已停止识别任务')
+  photoStore.fetchPhotos(true)
 }
 
 function formatDate(s: string | undefined) {

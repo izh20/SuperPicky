@@ -187,6 +187,9 @@ async def complete_upload(upload_id: str, db=Depends(get_db)):
 
     # 注册到 photos 或 videos 表
     file_size = os.path.getsize(dest_path)
+    if file_size == 0:
+        os.unlink(dest_path)
+        raise HTTPException(400, "Merged file is empty (0 bytes)")
     result = {"upload_id": upload_id, "file_hash": file_hash, "file_size": file_size}
 
     if file_type == "video":

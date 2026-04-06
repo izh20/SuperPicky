@@ -1,0 +1,66 @@
+---
+description: bird-gallery-web 子项目 guardrails（FastAPI + Vue3 图库网站，macOS 原生部署）
+globs:
+  - bird-gallery-web/**
+---
+
+# Bird Gallery Web 开发规则
+
+继承 `superpicky-core-rules.mdc` 中的通用规则，以下为 Web 子项目的补充和覆盖。
+
+## 继承的核心规则（必须遵循）
+
+- **UTF-8 安全**：鸟种中文名贯穿 DB/API/前端/EXIF 全链路，任何环节不得产生乱码。
+- **ExifTool 非 ASCII 写入**：必须用 UTF-8 临时文件重定向（`-Tag<=file`），复用 `tools/exiftool_manager.py`。
+- **SQLite 多线程安全**：FastAPI BackgroundTasks 与主线程并发读写 `gallery.db`，必须用 WAL 模式 + 每请求从连接池获取连接（FastAPI 依赖注入 `get_db()`），禁止在 BackgroundTasks 中共享同一连接。
+- **不绕过 DB 封装**：所有数据库操作通过 `models/database.py` 封装层，不直接操作底层连接。
+- **事务防御性**：分块上传合并、批量识别写入等多步操作，确保事务原子性和失败回滚。
+- **持久化进程关闭**：FastAPI shutdown 事件中必须调用 `ExifToolManager.close()` 和 `ModelManager` 清理；daemon 线程需优雅退出（通过 `threading.Event` 的 `set()` + `join(timeout=5)`）。
+
+## 不适用的规则（明确排除）
+
+以下父规则在本子项目中**不适用**，无需遵循：
+
+- ~~Windows 兼容性~~：本项目仅部署在 macOS（Mac Mini M4），可使用 `os.symlink`、`launchd`、MPS 等 macOS 专属特性。
+- ~~CUDA/PyInstaller 打包~~：不使用 CUDA、不打包为可执行文件，无需关注 UPX 或 `.spec` 文件。
+- ~~`py -3 -m py_compile`~~：macOS 无 `py` launcher，改用 `python3 -m py_compile`。
+
+**注意**：`bird-gallery-web/` 通过 `sys.path` import 的现有模块（`core/`、`tools/`、`birdid/`）仍然是跨平台代码，修改这些共享模块时必须保持 Windows 兼容性。
+
+## Web 子项目专属规则
+
+### 架构约束
+- FastAPI 服务运行在 `:8000`，**不得**干扰现有 Flask `:5156` 服务。
+- 通过 `sys.path.insert` 复用 SuperPicky 根目录模块，不得复制代码。**`sys.path.insert` 必须在所有模块 import 之前执行，建议放在 `backend/main.py` 顶部。**
+- 单 Uvicorn worker（`--workers 1`），配合 `asyncio.Lock` 串行化 MPS 推理。
+
+### AI 模型管理
+- 所有模型通过 `ModelManager` 按需加载，空闲 5 分钟（TTL）自动释放。
+- 释放时必须调用 `torch.mps.empty_cache()` + `gc.collect()` 归还统一内存。
+- YOLO 可常驻（~150MB），其余模型（OSEA/Keypoint/TOPIQ）走 LRU 释放。
+
+### 文件安全
+- 上传文件类型：白名单校验（MIME + 扩展名双重检查）。
+- 路径参数（`scan_path` 等）：必须做目录白名单校验，防止路径穿越。
+- 文件名清洗：去除 `../`、`/`、`\` 等路径分隔符和特殊字符。
+
+### 大文件上传
+- 单文件 ≤10GB，文件夹 ≤50GB，分块上传（10MB/块）。
+- nginx 配置 `proxy_request_buffering off` + `client_max_body_size 10G` + `proxy_read_timeout 1800s`。
+
+### 前端
+- Vue 3 + Vite，构建产物由 nginx 直接提供静态文件。
+- 大量照片场景使用 `vue-virtual-scroller` 虚拟滚动。
+
+### CORS 配置
+- 生产环境：FastAPI CORS 白名单仅允许预设的 DDNS 域名，禁止 `*`。
+- 开发环境：额外允许 `http://localhost:5173`（Vite dev server），通过环境变量 `ENV=dev` 控制，生产部署时不得开启。
+
+## 验证清单
+
+- 对修改的 Python 文件运行 `python3 -m py_compile`（macOS）。
+- EXIF 中文写入后必须读取回显验证，确认无乱码。
+- 数据库 schema 变更后，运行多线程读写压力测试。
+- 修改 nginx 配置后，运行 `nginx -t` 语法检查。
+- 模型生命周期变更后，验证 5 分钟空闲释放和 `/api/admin/metrics` 内存下降。
+- 分块上传验证：模拟中断后恢复，确认断点续传和合并失败回滚正常。

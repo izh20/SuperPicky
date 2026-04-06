@@ -121,7 +121,7 @@ export interface BirdSpecies {
 export interface Task {
   id: string
   type: string
-  status: 'pending' | 'running' | 'done' | 'error'
+  status: 'pending' | 'running' | 'done' | 'error' | 'cancelled'
   progress: number
   result_json: string | null
   error_msg: string | null
@@ -195,6 +195,9 @@ export interface PhotoFilters {
   aperture_max?: number
   shutter_speed?: string
   has_gps?: boolean
+  has_flying?: boolean
+  recognized?: string
+  confidence_min?: number
   page?: number
   page_size?: number
 }

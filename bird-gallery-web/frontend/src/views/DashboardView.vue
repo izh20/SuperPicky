@@ -29,7 +29,6 @@
           <Cpu class="w-5 h-5 text-primary-600" /> 系统内存
         </h2>
         <div class="space-y-2 text-sm">
-          <MemBar label="系统总量" :used="store.metrics.memory.system_total_gb" :total="store.metrics.memory.system_total_gb" color="bg-gray-200" />
           <MemBar label="系统已用" :used="store.metrics.memory.system_used_gb" :total="store.metrics.memory.system_total_gb" color="bg-blue-400" />
           <MemBar label="应用 RSS" :used="store.metrics.memory.app_used_gb" :total="store.metrics.memory.system_total_gb" color="bg-primary-500" />
         </div>
@@ -44,15 +43,22 @@
         <h2 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
           <Layers class="w-5 h-5 text-primary-600" /> AI 模型状态
         </h2>
-        <div class="space-y-2">
+        <div class="space-y-3">
           <div
             v-for="[name, m] in Object.entries(store.metrics.models)"
             :key="name"
-            class="flex items-center gap-3 text-sm"
+            class="flex items-start gap-3 text-sm"
           >
-            <div class="w-2 h-2 rounded-full" :class="m.loaded ? 'bg-green-400' : 'bg-gray-300'" />
-            <span class="flex-1 font-medium uppercase">{{ name }}</span>
-            <span class="text-xs text-gray-400">{{ m.loaded ? `${((m.memory_mb ?? 0) / 1024).toFixed(2)} GB` : '未加载' }}</span>
+            <div class="w-2 h-2 rounded-full mt-1.5 shrink-0" :class="m.loaded ? 'bg-green-400' : 'bg-gray-300'" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-medium uppercase">{{ name }}</span>
+                <span v-if="m.loaded" class="text-xs text-green-600">已加载</span>
+                <span v-else class="text-xs text-gray-400">未加载</span>
+                <span v-if="m.last_used" class="text-xs text-gray-400">{{ formatModelTime(m.last_used) }}</span>
+              </div>
+              <p class="text-xs text-gray-400 mt-0.5">{{ modelDesc[name] }}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -65,6 +71,12 @@
         <div class="flex flex-wrap gap-3">
           <AdminBtn @click="releaseModels" :loading="releasing" icon="🧹">
             释放空闲模型
+          </AdminBtn>
+          <AdminBtn @click="rescorePhotos" :loading="rescoring" icon="🔄">
+            重新评分
+          </AdminBtn>
+          <AdminBtn @click="resetRecognition" :loading="resetting" icon="⚠️">
+            重置识别
           </AdminBtn>
           <AdminBtn @click="openScan" icon="🔍">
             扫描本地目录
@@ -83,11 +95,21 @@ import { ref, onMounted, defineComponent, h } from 'vue'
 import { RefreshCw, Cpu, Layers, Settings } from 'lucide-vue-next'
 import { useDashboardStore } from '@/stores/dashboardStore'
 import { useToastStore } from '@/stores/toastStore'
+import { photoAPI } from '@/api/photos'
 import Spinner from '@/components/common/Spinner.vue'
 
 const store = useDashboardStore()
 const toast = useToastStore()
 const releasing = ref(false)
+const rescoring = ref(false)
+const resetting = ref(false)
+
+const modelDesc: Record<string, string> = {
+  yolo: 'YOLO11L-seg 目标检测 — 定位画面中的鸟并裁剪',
+  osea: 'OSEA ResNet34 鸟种分类 — 识别裁剪区域的鸟种',
+  keypoint: 'ResNet50 关键点检测 — 检测鸟头/眼位置，计算锐度',
+  topiq: 'CFANet 美学评分 — 评估画质与构图（1-10 分）',
+}
 
 onMounted(() => store.fetchAll())
 
@@ -103,8 +125,43 @@ async function releaseModels() {
   }
 }
 
+async function rescorePhotos() {
+  rescoring.value = true
+  try {
+    const res = await photoAPI.rescore()
+    if (res.total === 0) {
+      toast.success('所有照片评分已完整，无需重新评分')
+    } else {
+      toast.success(`正在重新评分 ${res.total} 张照片`)
+    }
+  } catch (e: any) {
+    toast.error(e.message)
+  } finally {
+    rescoring.value = false
+  }
+}
+
 function openScan() {
   window.location.href = '/upload'
+}
+
+async function resetRecognition() {
+  if (!confirm('确认重置所有照片的识别结果？\n\n此操作将清除所有鸟种识别和评分数据，不可撤销。')) return
+  resetting.value = true
+  try {
+    const res = await photoAPI.resetRecognition()
+    toast.success(`已重置：清除 ${res.deleted_birds} 条鸟种记录，${res.deleted_scores} 条评分记录`)
+    store.fetchAll()
+  } catch (e: any) {
+    toast.error(e.message)
+  } finally {
+    resetting.value = false
+  }
+}
+
+function formatModelTime(iso: string | null) {
+  if (!iso) return ''
+  return iso.slice(5, 16).replace('T', ' ')
 }
 
 // 行内辅助组件

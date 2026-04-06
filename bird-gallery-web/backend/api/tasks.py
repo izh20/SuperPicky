@@ -14,3 +14,19 @@ async def get_task(task_id: str, db=Depends(get_db)):
     if not row:
         raise HTTPException(404, "Task not found")
     return TaskResponse(**dict(row))
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str, db=Depends(get_db)):
+    """取消一个 pending 或 running 的任务。"""
+    row = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Task not found")
+    if row["status"] not in ("pending", "running"):
+        return {"message": "Task already finished"}
+    db.execute(
+        "UPDATE tasks SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (task_id,),
+    )
+    db.commit()
+    return {"message": "Task cancelled"}

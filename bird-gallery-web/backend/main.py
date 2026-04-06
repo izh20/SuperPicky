@@ -61,6 +61,26 @@ def _cleanup_stale_chunks(max_age_hours: int = 24):
         logger.info("Cleaned %d stale chunk directories", cleaned)
 
 
+def _cleanup_orphan_tasks():
+    """启动时将上次运行中被杀死的 running/pending 任务标记为 error。"""
+    from models.database import get_db_connection
+    db = get_db_connection()
+    try:
+        rows = db.execute(
+            "SELECT id, type, status FROM tasks WHERE status IN ('running', 'pending')"
+        ).fetchall()
+        if rows:
+            db.execute(
+                "UPDATE tasks SET status = 'error', error_msg = '服务重启，任务被中断', "
+                "updated_at = CURRENT_TIMESTAMP WHERE status IN ('running', 'pending')"
+            )
+            db.commit()
+            logger.warning("Cleaned %d orphan tasks: %s",
+                           len(rows), [f"{r['id'][:8]}({r['status']})" for r in rows])
+    finally:
+        db.close()
+
+
 # ── 生命周期 ──
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,6 +94,7 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing config & media dirs...")
     app_config.ensure_media_dirs()
     _cleanup_stale_chunks()
+    _cleanup_orphan_tasks()
     logger.info("Starting ModelManager...")
     model_manager.start()
     logger.info("Bird Gallery Web API ready")

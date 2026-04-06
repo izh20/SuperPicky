@@ -17,6 +17,7 @@ import logging
 import json
 import tempfile
 import subprocess
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query, BackgroundTasks
@@ -33,7 +34,7 @@ from models.schemas import (
 )
 from services.thumbnail_generator import (
     generate_all_thumbnails, generate_thumbnail, get_thumbnail_path,
-    get_image_dimensions,
+    get_image_dimensions, generate_preview_jpeg,
 )
 from services.model_manager import model_manager
 from app_config_pkg import config as app_config
@@ -153,6 +154,10 @@ async def upload_photo(
 
     file_hash = h.hexdigest()
 
+    if total_size == 0:
+        os.unlink(dest_path)
+        raise HTTPException(400, "Empty file (0 bytes)")
+
     # 获取图片尺寸
     dims = get_image_dimensions(dest_path)
     width, height = dims if dims else (None, None)
@@ -167,6 +172,8 @@ async def upload_photo(
 
     # 生成缩略图（同步生成 sm，其他延迟）
     await run_in_threadpool(generate_thumbnail, dest_path, photo_id, "sm")
+    # 预生成 JPEG 缓存供 AI 推理使用 (D 优化)
+    await run_in_threadpool(generate_preview_jpeg, dest_path, photo_id)
 
     # EXIF 元数据提取
     await _extract_and_store_exif(photo_id, dest_path, db)
@@ -273,10 +280,14 @@ def _safe_float(v):
 # ── 筛选选项 ──
 
 @router.get("/photos/filter-options")
-async def get_filter_options(db=Depends(get_db)):
+async def get_filter_options(
+    confidence_min: float = Query(70.0, ge=0, le=100),
+    db=Depends(get_db),
+):
     """返回当前照片库中可用的筛选项（鸟种、日期、相机型号）。"""
     species_rows = db.execute(
-        "SELECT DISTINCT species_cn FROM photo_birds WHERE species_cn IS NOT NULL AND rank = 1 ORDER BY species_cn"
+        "SELECT DISTINCT species_cn FROM photo_birds WHERE species_cn IS NOT NULL AND rank = 1 AND confidence >= ? ORDER BY species_cn",
+        (confidence_min,),
     ).fetchall()
 
     camera_rows = db.execute(
@@ -313,6 +324,9 @@ async def list_photos(
     aperture_max: float | None = None,
     shutter_speed: str | None = None,
     has_gps: bool | None = None,
+    confidence_min: float | None = None,
+    has_flying: bool | None = None,
+    recognized: str | None = Query(None, description="筛选识别状态: yes=已识别到鸟, no=未识别, no_bird=已处理但无鸟"),
     db=Depends(get_db),
 ):
     """分页查询照片列表，支持多条件筛选。"""
@@ -329,6 +343,11 @@ async def list_photos(
             "p.id IN (SELECT photo_id FROM photo_birds WHERE species_cn LIKE ? OR species_en LIKE ?)"
         )
         params.extend([f"%{species}%", f"%{species}%"])
+    if confidence_min is not None and recognized not in ("no", "no_bird"):
+        conditions.append(
+            "p.id IN (SELECT photo_id FROM photo_birds WHERE rank = 1 AND confidence >= ?)"
+        )
+        params.append(confidence_min)
     if rating_min is not None:
         conditions.append("ps.rating >= ?")
         params.append(rating_min)
@@ -377,6 +396,21 @@ async def list_photos(
             conditions.append("pm.gps_lat IS NOT NULL AND pm.gps_lon IS NOT NULL")
         else:
             conditions.append("(pm.gps_lat IS NULL OR pm.gps_lon IS NULL)")
+    if has_flying is not None:
+        if has_flying:
+            conditions.append("ps.is_flying = 1")
+        else:
+            conditions.append("(ps.is_flying IS NULL OR ps.is_flying = 0)")
+    if recognized is not None:
+        if recognized == "yes":
+            # 已识别到鸟：photo_birds 有记录
+            conditions.append("p.id IN (SELECT photo_id FROM photo_birds)")
+        elif recognized == "no":
+            # 未识别：photo_scores 无记录
+            conditions.append("ps.photo_id IS NULL")
+        elif recognized == "no_bird":
+            # 已处理但未检测到鸟：photo_scores 有记录但 rating = -1
+            conditions.append("ps.photo_id IS NOT NULL AND ps.rating = -1")
 
     where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -538,10 +572,22 @@ async def recognize_all(
     db=Depends(get_db),
 ):
     """一键识别图库中所有未识别的照片（异步任务）。"""
+    # 防止重复：如果已有 running 的 recognize_all 任务，返回该任务
+    existing = db.execute(
+        "SELECT id, progress FROM tasks WHERE type = 'recognize_all' AND status = 'running'"
+    ).fetchone()
+    if existing:
+        total = db.execute(
+            """SELECT COUNT(*) FROM photos p
+               LEFT JOIN photo_scores ps ON ps.photo_id = p.id
+               WHERE ps.photo_id IS NULL"""
+        ).fetchone()[0]
+        return {"id": existing["id"], "task_id": existing["id"], "total": total}
+
     rows = db.execute(
         """SELECT p.id FROM photos p
-           LEFT JOIN photo_birds pb ON pb.photo_id = p.id
-           WHERE pb.id IS NULL"""
+           LEFT JOIN photo_scores ps ON ps.photo_id = p.id
+           WHERE ps.photo_id IS NULL"""
     ).fetchall()
     photo_ids = [r["id"] for r in rows]
 
@@ -606,6 +652,67 @@ async def recalculate_ratings(
     ]
     background_tasks.add_task(_recalculate_ratings_task, task_id, score_data)
     return {"id": task_id, "task_id": task_id, "total": len(score_data)}
+
+
+@router.post("/photos/rescore")
+async def rescore_photos(
+    background_tasks: BackgroundTasks,
+    db=Depends(get_db),
+):
+    """重新运行 keypoint + TOPIQ 评分（修复 RAW 文件评分缺失问题）。"""
+    # 查找有鸟检测但缺少锐度/美学评分的照片
+    rows = db.execute(
+        """SELECT ps.photo_id, p.original_path, pb.detection_box
+           FROM photo_scores ps
+           JOIN photos p ON p.id = ps.photo_id
+           JOIN photo_birds pb ON pb.photo_id = ps.photo_id AND pb.rank = 1
+           WHERE ps.rating != -1
+             AND (ps.head_sharp = 0 OR ps.head_sharp IS NULL)
+             AND (ps.nima_score IS NULL)"""
+    ).fetchall()
+
+    if not rows:
+        task_id = str(uuid.uuid4())
+        db.execute(
+            "INSERT INTO tasks (id, type, status, progress) VALUES (?, 'rescore', 'done', 100)",
+            (task_id,),
+        )
+        db.commit()
+        return {"id": task_id, "task_id": task_id, "total": 0}
+
+    task_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO tasks (id, type, status) VALUES (?, 'rescore', 'pending')",
+        (task_id,),
+    )
+    db.commit()
+
+    rescore_data = [
+        {
+            "photo_id": r["photo_id"],
+            "image_path": r["original_path"],
+            "detection_box": r["detection_box"],
+        }
+        for r in rows
+    ]
+    background_tasks.add_task(_rescore_task, task_id, rescore_data)
+    return {"id": task_id, "task_id": task_id, "total": len(rescore_data)}
+
+
+@router.post("/photos/reset-recognition", dependencies=[Depends(require_admin)])
+async def reset_recognition(db=Depends(get_db)):
+    """一键重置所有照片的识别结果（清空 photo_birds 和 photo_scores）。"""
+    # 先取消所有运行中/待处理的相关任务
+    db.execute(
+        "UPDATE tasks SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP "
+        "WHERE type IN ('recognize_all', 'batch_recognize', 'rescore') "
+        "AND status IN ('pending', 'running')"
+    )
+    # 清空识别结果
+    deleted_birds = db.execute("DELETE FROM photo_birds").rowcount
+    deleted_scores = db.execute("DELETE FROM photo_scores").rowcount
+    db.commit()
+    return {"deleted_birds": deleted_birds, "deleted_scores": deleted_scores}
 
 
 class BatchDeleteRequest(BaseModel):
@@ -721,6 +828,139 @@ async def get_original(photo_id: str, db=Depends(get_db)):
     return FileResponse(path, filename=row["filename"])
 
 
+@router.get("/photos/{photo_id}/annotated")
+async def get_annotated_image(photo_id: str, db=Depends(get_db)):
+    """生成标注了检测框和关键点的过程图片。"""
+    import cv2
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+
+    photo = db.execute(
+        "SELECT original_path, width, height FROM photos WHERE id = ?", (photo_id,)
+    ).fetchone()
+    if not photo:
+        raise HTTPException(404, "Photo not found")
+
+    # 获取检测框
+    bird_row = db.execute(
+        "SELECT detection_box, species_cn, confidence FROM photo_birds WHERE photo_id = ? ORDER BY rank LIMIT 1",
+        (photo_id,),
+    ).fetchone()
+
+    # 获取关键点数据
+    score_row = db.execute(
+        "SELECT keypoints_json FROM photo_scores WHERE photo_id = ?", (photo_id,)
+    ).fetchone()
+
+    if not bird_row and not score_row:
+        raise HTTPException(404, "No detection data for this photo")
+
+    # 生成标注图（在线程池中执行以免阻塞事件循环）
+    def _generate():
+        orig_img = cv2.imdecode(
+            np.fromfile(photo["original_path"], dtype=np.uint8), cv2.IMREAD_COLOR
+        )
+        if orig_img is None:
+            try:
+                from birdid.bird_identifier import load_image as birdid_load_image
+                pil_img = birdid_load_image(photo["original_path"])
+                orig_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                del pil_img
+            except Exception:
+                return None
+
+        h_img, w_img = orig_img.shape[:2]
+
+        # 缩放到合理显示尺寸（最大 1200px 长边），减少传输和内存
+        max_side = 1200
+        scale = 1.0
+        if max(h_img, w_img) > max_side:
+            scale = max_side / max(h_img, w_img)
+            orig_img = cv2.resize(orig_img, (int(w_img * scale), int(h_img * scale)))
+
+        # 转为 PIL 用于中文文字绘制
+        pil_img = Image.fromarray(cv2.cvtColor(orig_img, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_img)
+
+        # 加载支持中文的字体
+        _cjk_font_paths = [
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            "/System/Library/Fonts/Supplemental/Songti.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        ]
+        font_large = None
+        font_small = None
+        for fp in _cjk_font_paths:
+            if os.path.exists(fp):
+                try:
+                    font_large = ImageFont.truetype(fp, 18)
+                    font_small = ImageFont.truetype(fp, 14)
+                    break
+                except Exception:
+                    continue
+        if font_large is None:
+            font_large = ImageFont.load_default()
+            font_small = font_large
+
+        # 绘制检测框
+        if bird_row and bird_row["detection_box"]:
+            try:
+                bbox = json.loads(bird_row["detection_box"]) if isinstance(bird_row["detection_box"], str) else bird_row["detection_box"]
+                if bbox and len(bbox) == 4:
+                    bx1 = int(bbox[0] * scale)
+                    by1 = int(bbox[1] * scale)
+                    bx2 = int(bbox[2] * scale)
+                    by2 = int(bbox[3] * scale)
+                    draw.rectangle([(bx1, by1), (bx2, by2)], outline=(0, 255, 0), width=2)
+                    label = bird_row["species_cn"] or ""
+                    if bird_row["confidence"]:
+                        label += f" {bird_row['confidence']:.1f}%"
+                    if label:
+                        text_bbox = draw.textbbox((0, 0), label, font=font_large)
+                        tw = text_bbox[2] - text_bbox[0]
+                        th = text_bbox[3] - text_bbox[1]
+                        draw.rectangle([(bx1, by1 - th - 8), (bx1 + tw + 8, by1)], fill=(0, 255, 0))
+                        draw.text((bx1 + 4, by1 - th - 5), label, fill=(0, 0, 0), font=font_large)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # 绘制关键点
+        if score_row and score_row["keypoints_json"]:
+            try:
+                kp = json.loads(score_row["keypoints_json"])
+                vis_thresh = 0.3
+
+                for name, color, label in [
+                    ("left_eye", (255, 0, 0), "L-Eye"),
+                    ("right_eye", (0, 0, 255), "R-Eye"),
+                    ("beak", (0, 255, 255), "Beak"),
+                ]:
+                    vis_key = f"{name}_vis"
+                    if name in kp and kp.get(vis_key, 0) >= vis_thresh:
+                        px = int(kp[name][0] * scale)
+                        py = int(kp[name][1] * scale)
+                        r = 6
+                        draw.ellipse([(px - r, py - r), (px + r, py + r)], fill=color)
+                        draw.ellipse([(px - r - 2, py - r - 2), (px + r + 2, py + r + 2)], outline=(255, 255, 255), width=1)
+                        vis_pct = int(kp.get(vis_key, 0) * 100)
+                        draw.text((px + 10, py - 6), f"{label} {vis_pct}%", fill=color, font=font_small)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # 转回 cv2 编码输出
+        orig_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        _, buf = cv2.imencode(".jpg", orig_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return buf.tobytes()
+
+    img_bytes = await run_in_threadpool(_generate)
+    if img_bytes is None:
+        raise HTTPException(500, "Failed to generate annotated image")
+
+    from starlette.responses import Response
+    return Response(content=img_bytes, media_type="image/jpeg")
+
+
 def _write_exif_text_with_tempfile(file_path: str, text: str, tags: list[str]) -> dict:
     """使用 UTF-8 临时文件重定向写入 Exif（避免中文乱码）。"""
     from tools.exiftool_manager import get_exiftool_manager
@@ -783,17 +1023,33 @@ def _write_exif_bird_info(file_path: str, birds: list, rating: int | None):
     xmp_rating = {-1: 0, 0: 1, 1: 2, 2: 3, 3: 5}.get(rating, 0) if rating is not None else 0
 
     try:
-        _write_exif_text_with_tempfile(file_path, top_bird, ["XMP:Title"])
-        _write_exif_text_with_tempfile(file_path, desc, ["XMP:Description", "IPTC:Caption-Abstract"])
+        # 使用 ExifTool 常驻进程（-stay_open 模式，零启动开销）
         from tools.exiftool_manager import get_exiftool_manager
         etm = get_exiftool_manager()
-        cmd = [
-            etm.exiftool_path,
-            "-overwrite_original_in_place",
-            f"-XMP:Rating={xmp_rating}",
-            file_path,
-        ]
-        subprocess.run(cmd, capture_output=True, timeout=30)
+
+        title_fd, title_tmp = tempfile.mkstemp(suffix=".txt")
+        os.close(title_fd)
+        desc_fd, desc_tmp = tempfile.mkstemp(suffix=".txt")
+        os.close(desc_fd)
+
+        try:
+            with open(title_tmp, "w", encoding="utf-8") as f:
+                f.write(top_bird)
+            with open(desc_tmp, "w", encoding="utf-8") as f:
+                f.write(desc)
+
+            args = [
+                f"-XMP:Title<={title_tmp}",
+                f"-XMP:Description<={desc_tmp}",
+                f"-IPTC:Caption-Abstract<={desc_tmp}",
+                f"-XMP:Rating={xmp_rating}",
+                file_path,
+            ]
+            etm._send_to_process(args, timeout=30)
+        finally:
+            for p in (title_tmp, desc_tmp):
+                if os.path.exists(p):
+                    os.unlink(p)
     except Exception as e:
         logger.warning("Auto EXIF write failed for %s: %s", file_path, e)
 
@@ -870,16 +1126,26 @@ async def recognize_photo(photo_id: str, db=Depends(get_db)):
 
     from main import inference_lock
 
+    # 优先使用 preview.jpg 加速识别
+    preview_path = os.path.join(app_config.thumbnails_dir(photo_id), "preview.jpg")
+    identify_path = preview_path if os.path.exists(preview_path) else photo["original_path"]
+
     async with inference_lock:
-        result = await run_in_threadpool(_run_identify, photo["original_path"])
+        result = await run_in_threadpool(_run_identify, identify_path)
 
-    if not result or not result.get("success"):
-        err = result.get("error", "Unknown error") if result else "Identification failed"
-        raise HTTPException(500, err)
+        if not result or not result.get("success"):
+            err = result.get("error", "Unknown error") if result else "Identification failed"
+            raise HTTPException(500, err)
 
-    # 存储识别结果
+        # 在锁内加载图像 + 评分推理 (A+E 优化)
+        loaded_img = await run_in_threadpool(_load_image_cv, photo["original_path"], photo_id)
+        scores = await run_in_threadpool(
+            _store_scores, db, photo_id, result,
+            photo["original_path"], loaded_img,
+        )
+
+    # 存储识别结果（无需推理锁）
     birds = _store_bird_results(db, photo_id, result)
-    scores = _store_scores(db, photo_id, result, image_path=photo["original_path"])
 
     # 自动写入 EXIF
     rating_val = scores.rating if scores else None
@@ -926,8 +1192,12 @@ def _store_bird_results(db, photo_id: str, result: dict) -> list[BirdResult]:
     return birds
 
 
-def _store_scores(db, photo_id: str, result: dict, image_path: str = None) -> PhotoScore | None:
-    """计算完整评分并存储到 photo_scores 表。"""
+def _store_scores(db, photo_id: str, result: dict, image_path: str = None, loaded_img=None) -> PhotoScore | None:
+    """计算完整评分并存储到 photo_scores 表。
+    
+    Args:
+        loaded_img: 预加载的 numpy BGR 图像数组，避免重复从磁盘读取 RAW。
+    """
     yolo_info = _normalize_yolo_info(result)
     if not yolo_info.get("detected"):
         score = PhotoScore(rating=-1)
@@ -943,19 +1213,25 @@ def _store_scores(db, photo_id: str, result: dict, image_path: str = None) -> Ph
     if confidence > 1.0:
         confidence = confidence / 100.0
 
+    # ── 加载图像（仅当未预加载时） ──
+    bbox = yolo_info.get("bbox")
+    img_size = yolo_info.get("img_size")
+    cv_img = loaded_img  # 可能为 None
+
+    if cv_img is None and image_path and bbox:
+        cv_img = _load_image_cv(image_path, photo_id=photo_id)
+
     # ── 关键点检测 + TOPIQ 美学评分 ──
     head_sharpness = 0.0
     topiq = None
     all_keypoints_hidden = False
     best_eye_visibility = 1.0
+    keypoints_data = None
 
-    bbox = yolo_info.get("bbox")
-    img_size = yolo_info.get("img_size")
-
-    if image_path and bbox:
+    if cv_img is not None and bbox:
         try:
-            head_sharpness, topiq, all_keypoints_hidden, best_eye_visibility = (
-                _run_keypoint_and_topiq(image_path, bbox, img_size)
+            head_sharpness, topiq, all_keypoints_hidden, best_eye_visibility, keypoints_data = (
+                _run_keypoint_and_topiq(None, bbox, img_size, loaded_img=cv_img)
             )
         except Exception as e:
             logger.warning("Full rating failed for %s: %s", photo_id, e)
@@ -973,6 +1249,14 @@ def _store_scores(db, photo_id: str, result: dict, image_path: str = None) -> Ph
         iso_factor = 1.0 + (iso_value - 100) / 800
     normalized_sharpness = head_sharpness * iso_factor
 
+    # ── 飞版检测 ──
+    is_flying = 0
+    if cv_img is not None and bbox:
+        try:
+            is_flying = _detect_flight(None, bbox, img_size, loaded_img=cv_img)
+        except Exception as e:
+            logger.warning("Flight detection failed for %s: %s", photo_id, e)
+
     # ── RatingEngine 计算 ──
     engine = _make_rating_engine()
     rating_result = engine.calculate(
@@ -982,29 +1266,123 @@ def _store_scores(db, photo_id: str, result: dict, image_path: str = None) -> Ph
         topiq=topiq,
         all_keypoints_hidden=all_keypoints_hidden,
         best_eye_visibility=best_eye_visibility,
+        is_flying=bool(is_flying),
     )
 
     score = PhotoScore(
         rating=rating_result.rating,
         head_sharp=head_sharpness,
         nima_score=topiq,
+        is_flying=is_flying,
     )
+    kp_json = json.dumps(keypoints_data, ensure_ascii=False) if keypoints_data else None
     db.execute(
         """INSERT OR REPLACE INTO photo_scores
-           (photo_id, rating, head_sharp, nima_score)
-           VALUES (?, ?, ?, ?)""",
-        (photo_id, rating_result.rating, head_sharpness, topiq),
+           (photo_id, rating, head_sharp, nima_score, keypoints_json, is_flying)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (photo_id, rating_result.rating, head_sharpness, topiq, kp_json, is_flying),
     )
     db.commit()
     return score
 
 
+def _load_image_cv(image_path: str, photo_id: str = None):
+    """加载图像为 numpy BGR 数组，支持 RAW 回退。"""
+    import cv2
+    import numpy as np
+
+    # 跳过不存在或 0 字节的文件
+    if not os.path.exists(image_path) or os.path.getsize(image_path) == 0:
+        logger.warning("Image file missing or empty: %s", image_path)
+        return None
+
+    try:
+        img = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error:
+        img = None
+    if img is None:
+        # RAW 回退：优先从预缓存 JPEG 加载
+        if photo_id:
+            preview = os.path.join(app_config.thumbnails_dir(photo_id), "preview.jpg")
+            if os.path.exists(preview):
+                img = cv2.imdecode(np.fromfile(preview, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            try:
+                from birdid.bird_identifier import load_image as birdid_load_image
+                pil_img = birdid_load_image(image_path)
+                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                del pil_img
+            except Exception as e:
+                logger.warning("Failed to load image %s: %s", image_path, e)
+                return None
+    return img
+
+
+def _detect_flight(image_path: str | None, bbox: list, img_size: list | None, loaded_img=None) -> int:
+    """检测鸟类是否处于飞行状态。返回 1 (飞版) 或 0 (非飞版)。"""
+    import cv2
+    import numpy as np
+    from services.model_manager import model_manager
+
+    if loaded_img is not None:
+        orig_img = loaded_img
+        own_img = False
+    elif image_path:
+        orig_img = _load_image_cv(image_path)
+        own_img = True
+    else:
+        return 0
+
+    if orig_img is None:
+        return 0
+
+    h, w = orig_img.shape[:2]
+
+    x1, y1, x2, y2 = bbox
+    if img_size and len(img_size) == 2:
+        iw, ih = img_size
+        if iw != w or ih != h:
+            sx, sy = w / iw, h / ih
+            x1, y1, x2, y2 = int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)
+
+    x1 = max(0, int(x1))
+    y1 = max(0, int(y1))
+    x2 = min(w, int(x2))
+    y2 = min(h, int(y2))
+    bird_crop = orig_img[y1:y2, x1:x2]
+
+    if bird_crop.size == 0:
+        del orig_img
+        return 0
+
+    def _load_flight():
+        from core.flight_detector import FlightDetector
+        fd = FlightDetector()
+        fd.load_model()
+        return fd
+
+    detector = model_manager.get("flight", _load_flight)
+    result = detector.detect(bird_crop)
+
+    if own_img:
+        del orig_img
+    return 1 if result.is_flying else 0
+
+
 def _run_keypoint_and_topiq(
-    image_path: str,
+    image_path: str | None,
     bbox: list,
     img_size: list | None,
+    loaded_img=None,
 ) -> tuple:
-    """运行关键点检测和 TOPIQ 美学评分。"""
+    """运行关键点检测和 TOPIQ 美学评分。
+    
+    Args:
+        image_path: 图像路径（loaded_img 存在时可为 None）
+        loaded_img: 预加载的 numpy BGR 图像数组
+    
+    返回: (head_sharpness, topiq_score, all_keypoints_hidden, best_eye_visibility, keypoints_data)
+    """
     import cv2
     import numpy as np
 
@@ -1012,10 +1390,17 @@ def _run_keypoint_and_topiq(
     topiq_score = None
     all_keypoints_hidden = False
     best_eye_visibility = 1.0
+    keypoints_data = None
 
-    orig_img = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if loaded_img is not None:
+        orig_img = loaded_img
+    elif image_path:
+        orig_img = _load_image_cv(image_path)
+    else:
+        return head_sharpness, topiq_score, all_keypoints_hidden, best_eye_visibility, keypoints_data
+
     if orig_img is None:
-        return head_sharpness, topiq_score, all_keypoints_hidden, best_eye_visibility
+        return head_sharpness, topiq_score, all_keypoints_hidden, best_eye_visibility, keypoints_data
 
     h_orig, w_orig = orig_img.shape[:2]
 
@@ -1050,6 +1435,21 @@ def _run_keypoint_and_topiq(
             head_sharpness = kp_result.head_sharpness
             best_eye_visibility = kp_result.best_eye_visibility
             all_keypoints_hidden = kp_result.all_keypoints_hidden
+
+            # 将归一化的裁剪坐标转换为原图绝对坐标
+            crop_w, crop_h = cx2 - cx1, cy2 - cy1
+            keypoints_data = {
+                "crop_box": [cx1, cy1, cx2, cy2],
+                "left_eye": [round(cx1 + kp_result.left_eye[0] * crop_w, 1),
+                             round(cy1 + kp_result.left_eye[1] * crop_h, 1)],
+                "right_eye": [round(cx1 + kp_result.right_eye[0] * crop_w, 1),
+                              round(cy1 + kp_result.right_eye[1] * crop_h, 1)],
+                "beak": [round(cx1 + kp_result.beak[0] * crop_w, 1),
+                         round(cy1 + kp_result.beak[1] * crop_h, 1)],
+                "left_eye_vis": round(kp_result.left_eye_vis, 3),
+                "right_eye_vis": round(kp_result.right_eye_vis, 3),
+                "beak_vis": round(kp_result.beak_vis, 3),
+            }
     except Exception as e:
         logger.warning("Keypoint detection failed: %s", e)
 
@@ -1065,9 +1465,9 @@ def _run_keypoint_and_topiq(
         except Exception as e:
             logger.warning("TOPIQ scoring failed: %s", e)
 
-    del orig_img
+    # 不 del orig_img —— 可能是调用方传入的共享引用
 
-    return head_sharpness, topiq_score, all_keypoints_hidden, best_eye_visibility
+    return head_sharpness, topiq_score, all_keypoints_hidden, best_eye_visibility, keypoints_data
 
 
 def _load_keypoint_detector():
@@ -1080,6 +1480,120 @@ def _load_topiq_scorer():
     """加载 TOPIQ 美学评分器（供 ModelManager 回调使用）。"""
     from iqa_scorer import IQAScorer
     return IQAScorer()
+
+
+def _rescore_task(task_id: str, rescore_data: list[dict]):
+    """后台重评分任务：重新运行 keypoint + TOPIQ，修复 RAW 文件评分缺失。"""
+    import json as _json
+    from models.database import get_db_connection
+    from main import inference_thread_lock
+
+    db = get_db_connection()
+    try:
+        db.execute(
+            "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (task_id,),
+        )
+        db.commit()
+
+        total = len(rescore_data)
+        for i, item in enumerate(rescore_data):
+            pid = item["photo_id"]
+            image_path = item["image_path"]
+            detection_box_raw = item["detection_box"]
+
+            try:
+                # 解析 detection_box
+                if isinstance(detection_box_raw, str):
+                    bbox = _json.loads(detection_box_raw)
+                elif isinstance(detection_box_raw, list):
+                    bbox = detection_box_raw
+                else:
+                    logger.warning("Rescore skip %s: invalid detection_box", pid)
+                    continue
+
+                if not bbox or len(bbox) != 4:
+                    continue
+
+                with inference_thread_lock:
+                    head_sharpness, topiq_score, all_keypoints_hidden, best_eye_visibility, keypoints_data = (
+                        _run_keypoint_and_topiq(image_path, bbox, img_size=None)
+                    )
+
+                # ISO 归一化
+                iso_row = db.execute(
+                    "SELECT iso FROM photo_metadata WHERE photo_id = ?", (pid,)
+                ).fetchone()
+                iso_value = iso_row["iso"] if iso_row and iso_row["iso"] else None
+
+                iso_factor = 1.0
+                if iso_value and iso_value > 100:
+                    iso_factor = 1.0 + (iso_value - 100) / 800
+                normalized_sharpness = head_sharpness * iso_factor
+
+                # 获取置信度
+                bird_row = db.execute(
+                    "SELECT confidence FROM photo_birds WHERE photo_id = ? ORDER BY rank LIMIT 1",
+                    (pid,),
+                ).fetchone()
+                confidence = 0.0
+                if bird_row and bird_row["confidence"]:
+                    confidence = bird_row["confidence"]
+                    if confidence > 1.0:
+                        confidence = confidence / 100.0
+
+                # 重算 rating
+                engine = _make_rating_engine()
+                rating_result = engine.calculate(
+                    detected=True,
+                    confidence=confidence,
+                    sharpness=normalized_sharpness,
+                    topiq=topiq_score,
+                    all_keypoints_hidden=all_keypoints_hidden,
+                    best_eye_visibility=best_eye_visibility,
+                )
+
+                db.execute(
+                    """UPDATE photo_scores
+                       SET rating = ?, head_sharp = ?, nima_score = ?, keypoints_json = ?
+                       WHERE photo_id = ?""",
+                    (rating_result.rating, head_sharpness, topiq_score,
+                     _json.dumps(keypoints_data, ensure_ascii=False) if keypoints_data else None,
+                     pid),
+                )
+            except Exception as e:
+                logger.warning("Rescore failed for %s: %s", pid, e)
+
+            progress = int((i + 1) / total * 100)
+            db.execute(
+                "UPDATE tasks SET progress = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (progress, task_id),
+            )
+            db.commit()
+
+            # 检查取消
+            cancel_check = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if cancel_check and cancel_check["status"] == "cancelled":
+                logger.info("Rescore task %s cancelled by user at %d/%d", task_id, i + 1, total)
+                break
+
+        # 仅在未被取消时标记 done
+        final_status = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if final_status and final_status["status"] != "cancelled":
+            db.execute(
+                "UPDATE tasks SET status = 'done', progress = 100, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (task_id,),
+            )
+            db.commit()
+    except Exception as e:
+        logger.error("Rescore task %s failed: %s", task_id, e)
+        db.execute(
+            "UPDATE tasks SET status = 'error', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (str(e), task_id),
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 # ── 批量识别 ──
@@ -1182,12 +1696,19 @@ def _recalculate_ratings_task(task_id: str, score_data: list[dict]):
 
 
 def _batch_recognize_task(task_id: str, photo_ids: list[str]):
-    """后台批量识别任务（BackgroundTasks 中运行，使用独立 DB 连接）。"""
+    """后台批量识别任务（BackgroundTasks 中运行，使用独立 DB 连接）。
+    
+    方案 C 优化：预加载下一张图像 + 异步 EXIF 写入，使 CPU I/O 与 GPU 推理重叠。
+    """
     from models.database import get_db_connection
     from birdid import identify_bird
     from main import inference_thread_lock
+    from concurrent.futures import ThreadPoolExecutor, Future
 
     db = get_db_connection()
+    exif_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="exif")
+    prefetch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefetch")
+
     try:
         db.execute(
             "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -1196,42 +1717,160 @@ def _batch_recognize_task(task_id: str, photo_ids: list[str]):
         db.commit()
 
         total = len(photo_ids)
+        recent_results: list[dict] = []
+        pending_exif_future: Future | None = None
+
+        # 预查询所有照片信息，避免循环内逐条查询
+        photo_rows: dict[str, dict] = {}
+        for pid in photo_ids:
+            row = db.execute(
+                "SELECT original_path, filename FROM photos WHERE id = ?", (pid,)
+            ).fetchone()
+            if row:
+                photo_rows[pid] = {"original_path": row["original_path"], "filename": row["filename"]}
+
+        # 预加载函数：在 GPU 推理当前照片时预加载下一张
+        def _prefetch_image(pid: str, path: str):
+            return _load_image_cv(path, photo_id=pid)
+
+        # 启动第一张的预加载
+        prefetch_future: Future | None = None
+        first_valid = None
+        for pid in photo_ids:
+            if pid in photo_rows:
+                first_valid = pid
+                prefetch_future = prefetch_executor.submit(
+                    _prefetch_image, pid, photo_rows[pid]["original_path"]
+                )
+                break
+
         for i, pid in enumerate(photo_ids):
+            result_item: dict = {}
+            t_photo_start = time.time()
             try:
-                row = db.execute(
-                    "SELECT original_path FROM photos WHERE id = ?", (pid,)
-                ).fetchone()
-                if not row:
+                if pid not in photo_rows:
                     continue
 
+                row_info = photo_rows[pid]
+                result_item["filename"] = row_info["filename"]
+
+                # 跳过不存在或 0 字节的损坏文件
+                orig_path = row_info["original_path"]
+                if not os.path.exists(orig_path) or os.path.getsize(orig_path) == 0:
+                    preview_path = os.path.join(app_config.thumbnails_dir(pid), "preview.jpg")
+                    if not os.path.exists(preview_path):
+                        logger.warning("Skipping empty/missing file: %s", row_info["filename"])
+                        result_item["species_cn"] = None
+                        result_item["rating"] = None
+                        result_item["elapsed"] = round(time.time() - t_photo_start, 2)
+                        recent_results.append(result_item)
+                        if len(recent_results) > 50:
+                            recent_results = recent_results[-50:]
+                        processed = i + 1
+                        progress = int(processed / total * 100)
+                        result_payload = json.dumps({"processed": processed, "results": recent_results}, ensure_ascii=False)
+                        db.execute(
+                            "UPDATE tasks SET progress = ?, result_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (progress, result_payload, task_id),
+                        )
+                        db.commit()
+                        continue
+
+                # 获取预加载结果（如果有的话）
+                preloaded_img = None
+                if prefetch_future is not None:
+                    try:
+                        preloaded_img = prefetch_future.result(timeout=10)
+                    except Exception:
+                        preloaded_img = None
+                    prefetch_future = None
+
+                # 启动下一张图像的预加载（在 GPU 推理前启动，充分利用 GPU 推理时间）
+                next_pid = None
+                for j in range(i + 1, len(photo_ids)):
+                    if photo_ids[j] in photo_rows:
+                        next_pid = photo_ids[j]
+                        break
+                if next_pid:
+                    prefetch_future = prefetch_executor.submit(
+                        _prefetch_image, next_pid, photo_rows[next_pid]["original_path"]
+                    )
+
+                # 优先使用 preview.jpg 加速识别（避免 ExifTool RAW 解码）
+                preview_path = os.path.join(app_config.thumbnails_dir(pid), "preview.jpg")
+                identify_path = preview_path if os.path.exists(preview_path) else row_info["original_path"]
+
                 with inference_thread_lock:
-                    result = identify_bird(row["original_path"], use_yolo=True, top_k=5)
+                    result = identify_bird(identify_path, use_yolo=True, top_k=5)
+
+                    # 在锁内一次性运行所有推理模型
+                    loaded_img = preloaded_img if preloaded_img is not None else _load_image_cv(row_info["original_path"], photo_id=pid)
+                    if result and result.get("success"):
+                        scores = _store_scores(db, pid, result, image_path=row_info["original_path"], loaded_img=loaded_img)
 
                 if result and result.get("success"):
                     birds = _store_bird_results(db, pid, result)
-                    scores = _store_scores(db, pid, result, image_path=row["original_path"])
-                    # 自动写入 EXIF
+                    # 等待前一张的 EXIF 写入完成（确保 ExifTool 常驻进程不并发）
+                    if pending_exif_future is not None:
+                        try:
+                            pending_exif_future.result(timeout=30)
+                        except Exception as e:
+                            logger.warning("Pending EXIF write failed: %s", e)
+                        pending_exif_future = None
+
+                    # 异步写入 EXIF（在下一张 GPU 推理时执行）
                     rating_val = scores.rating if scores else None
-                    try:
-                        _write_exif_bird_info(row["original_path"], birds, rating_val)
-                    except Exception as e:
-                        logger.warning("EXIF write failed for %s: %s", pid, e)
+                    pending_exif_future = exif_executor.submit(
+                        _write_exif_bird_info, row_info["original_path"], birds, rating_val
+                    )
+
+                    # 记录结果
+                    result_item["species_cn"] = birds[0].species_cn if birds else None
+                    result_item["rating"] = scores.rating if scores else None
+                    result_item["head_sharp"] = round(scores.head_sharp, 2) if scores and scores.head_sharp else None
+                    result_item["nima_score"] = round(scores.nima_score, 2) if scores and scores.nima_score else None
+                else:
+                    result_item["species_cn"] = None
+                    result_item["rating"] = None
             except Exception as e:
                 logger.warning("Recognize failed for photo %s: %s", pid, e)
+                result_item["error"] = str(e)
 
-            progress = int((i + 1) / total * 100)
-            if i % 3 == 0:
-                db.execute(
-                    "UPDATE tasks SET progress = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (progress, task_id),
-                )
-                db.commit()
+            result_item["elapsed"] = round(time.time() - t_photo_start, 2)
+            recent_results.append(result_item)
+            if len(recent_results) > 50:
+                recent_results = recent_results[-50:]
 
-        db.execute(
-            "UPDATE tasks SET status = 'done', progress = 100, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (task_id,),
-        )
-        db.commit()
+            processed = i + 1
+            progress = int(processed / total * 100)
+            result_payload = json.dumps({"processed": processed, "results": recent_results}, ensure_ascii=False)
+            db.execute(
+                "UPDATE tasks SET progress = ?, result_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (progress, result_payload, task_id),
+            )
+            db.commit()
+
+            # 检查取消
+            cancel_check = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if cancel_check and cancel_check["status"] == "cancelled":
+                logger.info("Task %s cancelled by user at %d/%d", task_id, i + 1, total)
+                break
+
+        # 等待最后一张的 EXIF 写入完成
+        if pending_exif_future is not None:
+            try:
+                pending_exif_future.result(timeout=30)
+            except Exception as e:
+                logger.warning("Final EXIF write failed: %s", e)
+
+        # 仅在未被取消时标记 done
+        final_status = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if final_status and final_status["status"] != "cancelled":
+            db.execute(
+                "UPDATE tasks SET status = 'done', progress = 100, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (task_id,),
+            )
+            db.commit()
     except Exception as e:
         logger.error("Batch recognize task %s failed: %s", task_id, e)
         db.execute(
@@ -1240,6 +1879,8 @@ def _batch_recognize_task(task_id: str, photo_ids: list[str]):
         )
         db.commit()
     finally:
+        exif_executor.shutdown(wait=True, cancel_futures=False)
+        prefetch_executor.shutdown(wait=False, cancel_futures=True)
         db.close()
 
 

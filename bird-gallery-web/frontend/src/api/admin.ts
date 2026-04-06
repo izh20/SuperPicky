@@ -17,6 +17,8 @@ export const adminAPI = {
 export const taskAPI = {
   get: (id: string): Promise<Task> => client.get(`/tasks/${id}`),
 
+  cancel: (id: string): Promise<{ message: string }> => client.post(`/tasks/${id}/cancel`),
+
   /** 每 interval 毫秒轮询，直到状态 done/error，返回最终 Task */
   poll: (id: string, interval = 1500): Promise<Task> =>
     new Promise((resolve, reject) => {

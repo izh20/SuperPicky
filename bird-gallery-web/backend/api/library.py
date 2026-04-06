@@ -90,7 +90,7 @@ async def scan_library(
 def _scan_task(task_id: str, scan_dir: str, recursive: bool):
     """后台扫描任务。"""
     import hashlib
-    from services.thumbnail_generator import generate_thumbnail, get_image_dimensions
+    from services.thumbnail_generator import generate_thumbnail, get_image_dimensions, generate_preview_jpeg
 
     db = get_db_connection()
     try:
@@ -157,6 +157,8 @@ def _scan_task(task_id: str, scan_dir: str, recursive: bool):
 
                 # 生成小缩略图
                 generate_thumbnail(fpath, photo_id, "sm")
+                # 预生成 JPEG 缓存供 AI 推理使用 (D 优化)
+                generate_preview_jpeg(fpath, photo_id)
                 imported += 1
 
             except Exception as e:
@@ -194,7 +196,7 @@ async def dashboard_stats(db=Depends(get_db)):
     videos_count = db.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
 
     species_count = db.execute(
-        "SELECT COUNT(DISTINCT species_cn) FROM photo_birds WHERE species_cn IS NOT NULL"
+        "SELECT COUNT(DISTINCT species_cn) FROM photo_birds WHERE species_cn IS NOT NULL AND rank = 1 AND confidence >= 70"
     ).fetchone()[0]
 
     recent_photos = db.execute(
