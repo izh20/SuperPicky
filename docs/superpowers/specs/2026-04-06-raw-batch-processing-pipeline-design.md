@@ -1,7 +1,7 @@
 # RAW 照片批量处理管线设计
 
 日期: 2026-04-06
-状态: 设计稿 (review v2 — 修复 spec-review 发现的问题)
+状态: 设计稿 (review v4 — 全部 review 问题已修复)
 
 ## 1. 目标
 
@@ -43,7 +43,7 @@ Web 后端已有完整的识别和评分流程:
 
 ### 2.2 检测框坐标空间说明
 
-YOLO 检测在嵌入 JPEG 上执行, bbox 坐标为嵌入 JPEG 的像素坐标。但 `birdid/bird_identifier.py` 的 `detect_and_crop_bird` 方法返回的 bbox 已转换为**原始图像坐标**。存入 DB 的 `detection_box` 为原图坐标系。
+YOLO 检测在嵌入 JPEG 上执行, bbox 坐标为嵌入 JPEG 的像素坐标系。Sony 相机嵌入的 JPEG 预览通常与 RAW 分辨率一致, 因此 bbox 坐标在数值上等同于原图坐标。存入 DB 的 `detection_box` 在嵌入 JPEG 坐标空间中。
 
 Phase 5 裁切时, 目标图像为 PureRAW 输出的 DNG (全 RAW 分辨率)。由于 PureRAW 不改变分辨率, DNG 与原始 RAW 尺寸一致, 因此 bbox 坐标可直接用于裁切, 无需二次映射。
 
@@ -54,7 +54,7 @@ scale_y = tiff_height / raw_height
 bbox_scaled = [x1*scale_x, y1*scale_y, x2*scale_x, y2*scale_y]
 ```
 
-### 2.2 星级标准 (现有)
+### 2.3 星级标准 (现有)
 
 | 星级 | 含义 | 判定条件 |
 |------|------|----------|
@@ -64,7 +64,7 @@ bbox_scaled = [x1*scale_x, y1*scale_y, x2*scale_x, y2*scale_y]
 | 2 | 良好 | 锐度≥400 或 TOPIQ≥5.0 (满足其一) |
 | 3 | 优秀 | 锐度≥400 且 TOPIQ≥5.0 (同时满足) |
 
-### 2.3 筛选
+### 2.4 筛选
 
 - 配置项: `min_rating`, 默认 2
 - 仅将通过筛选的照片送入后续降噪/调色流程
@@ -101,12 +101,33 @@ def setup_pureraw_preset(task_id, output_dir):
             p["CustomDestinationFolderValue"] = output_dir
             break
     with open(PRESET_PATH, 'w') as f:
-        json.dump(presets, f, ensure_ascii=False, indent=4)
+        json.dump(presets, f, ensure_ascii=True, indent=4)
     return backup_path
 
 def restore_pureraw_preset(backup_path):
     if os.path.exists(backup_path):
         shutil.move(backup_path, PRESET_PATH)
+```
+
+#### Step 1a: 启动时检查遗留备份 (防止崩溃后预设丢失)
+
+每次批处理任务启动时，检查是否存在遗留备份并自动恢复：
+
+```python
+def recover_orphaned_backup():
+    """检查并恢复上一次崩溃遗留的预设备份"""
+    backups = sorted(Path(os.path.dirname(PRESET_PATH)).glob(
+        f"ProcessingPresets.json.backup_*"))
+    if backups:
+        latest = backups[-1]
+        shutil.move(str(latest), PRESET_PATH)
+        # 清理更早的遗留备份
+        for old in backups[:-1]:
+            old.unlink()
+        print(f"[BatchProcess] 已恢复遗留备份: {latest}")
+
+# 任务启动时调用
+recover_orphaned_backup()
 ```
 
 直接写入 `~/Library/DxO_Labs/DxO PureRAW 6/ProcessingPresets.json`:
@@ -120,12 +141,11 @@ def restore_pureraw_preset(backup_path):
     "CustomDestinationFolderValue": "/tmp/pureraw_batch_{task_id}",
     "DngOutputFormat": true,
     "JpegOutputFormat": false,
-    "JpegQualitySavedValue": 90,
     "FileRenamingActivatedValue": true,
     "FileRenamingPatternValue": 2,
     "id": 10,
     "isCustom": true,
-    "name": "自定义预设"
+    "name": "CustomPreset"
 }
 ```
 
@@ -142,23 +162,41 @@ subprocess.run(["open", "-a", "DxO PureRAW 6"] + arw_file_list)
 
 PureRAW 基于 QtSingleApplication, 运行中的实例通过 local socket 接收文件路径。
 
-#### Step 3: AppleScript UI Scripting
+#### Step 3: 触发处理
+
+**推荐方案 (半自动)**: 脚本自动导入文件、设置预设并选中，然后通知用户手动点击"处理"：
+
+```applescript
+-- 自动完成导入和预设设置，等待用户手动点"处理"
+tell application "System Events"
+    tell process "PureRAWv6"
+        delay 2
+        keystroke "a" using command down  -- 全选已导入文件
+        -- 选择预设 (通过菜单或快捷键)
+    end tell
+end tell
+-- 通知用户
+display dialog "请在 PureRAW 窗口中点击「处理」按钮，然后等待完成。" \
+    giving up after 300
+```
+
+**实验性增强 (全自动)**: 若辅助功能权限已授权，可进一步自动点击处理按钮：
 
 ```applescript
 tell application "System Events"
     tell process "PureRAWv6"
-        -- 等待导入完成
         delay 2
-        -- 全选
         keystroke "a" using command down
-        -- 点击处理按钮 (需根据实际UI元素定位)
-        -- click button "Process" of window 1
-        -- 或选择预设后处理
+        -- 点击处理按钮 (按钮文字因语言版本而异，需实测定位)
+        -- 推荐用 window 1 的 UI 元素索引而非文字匹配
+        click button 1 of window 1  -- 需根据实际调整
     end tell
 end tell
 ```
 
 前提: 系统偏好设置 → 隐私与安全 → 辅助功能 中授权终端/Python。
+
+**注意**: UI Scripting 依赖窗口焦点和 UI 元素层级，PureRAW 版本更新可能导致索引变化。建议始终保留手动触发作为 fallback。
 
 #### Step 4: 监控输出
 
@@ -166,15 +204,35 @@ end tell
 import time
 from pathlib import Path
 
-def wait_for_pureraw(output_dir, expected_files, timeout=7200):
-    """轮询等待 PureRAW 输出所有文件"""
+def wait_for_pureraw(output_dir, input_files, timeout=7200):
+    """轮询等待 PureRAW 为所有输入文件生成对应输出
+
+    以文件名为准进行匹配，而非仅比较数量。
+    支持断点续传：已存在的正确输出文件不重复等待。
+    """
     start = time.time()
+    expected_basenames = {
+        Path(f).stem + "-DxO_DeepPRIME XD3.dng"
+        for f in input_files
+    }
+
     while time.time() - start < timeout:
-        existing = list(Path(output_dir).glob("*-DxO_DeepPRIME*.dng"))
-        if len(existing) >= len(expected_files):
-            return [str(f) for f in existing]
+        # 检查 cancelled 状态
+        # if db_check_cancelled(): raise CancelledError()
+
+        existing_dngs = list(Path(output_dir).glob("*-DxO_DeepPRIME*.dng"))
+        done = set()
+        for dng in existing_dngs:
+            if dng.name in expected_basenames:
+                done.add(dng.name)
+
+        missing = expected_basenames - done
+        if not missing:
+            return [str(d) for d in existing_dngs if d.name in expected_basenames]
+
         time.sleep(5)
-    raise TimeoutError("PureRAW processing timeout")
+
+    raise TimeoutError(f"PureRAW processing timeout, {len(done)}/{len(expected_basenames)} completed")
 ```
 
 ### 3.2 输出
@@ -200,16 +258,22 @@ PureRAW 处于外部 GUI, 取消行为:
 
 ### 3.5 并发控制
 
-批处理任务为全局互斥: 同一时刻只允许一个 `batch_process` 类型任务处于 running 状态。提交新任务时检查:
+批处理任务为全局互斥：同一时刻只允许一个 `batch_process` 类型任务处于 running 状态。SQLite 原子检查：
+
 ```python
-existing = db.execute(
-    "SELECT id FROM tasks WHERE type='batch_process' AND status='running'"
-).fetchone()
-if existing:
+# 原子 INSERT + 子查询：仅当无 running 的 batch_process 任务时才插入
+result = db.execute("""
+    INSERT INTO tasks (id, type, status, config_json, created_at)
+    SELECT :id, 'batch_process', 'running', :config, CURRENT_TIMESTAMP
+    WHERE NOT EXISTS (
+        SELECT 1 FROM tasks WHERE type = 'batch_process' AND status = 'running'
+    )
+""", {"id": task_id, "config": config_json})
+if result.rowcount == 0:
     raise HTTPException(409, "已有批处理任务在执行中")
 ```
 
-原因: PureRAW 和 LR 均为单实例 GUI 应用, 无法并行处理多批任务。
+原因：PureRAW 和 LR 均为单实例 GUI 应用，无法并行处理多批任务。
 
 ## 4. Phase 4: Lightroom Classic 自动调色
 
@@ -305,7 +369,7 @@ end tell
 
 ### 4.5 回退方案
 
-如果 LR 不可用, 使用 darktable-cli:
+如果 LR 不可用，使用 darktable-cli 作为勉强可用的替代：
 
 ```bash
 brew install --cask darktable
@@ -313,9 +377,9 @@ darktable-cli input.dng output.tiff \
   --core --conf plugins/imageio/format/tiff/bps=16
 ```
 
-darktable 默认 scene-referred 管线 (Filmic RGB + Exposure +0.7EV + Color Calibration) 可产出合理效果。
+darktable 的 scene-referred 管线 (Filmic RGB + Exposure +0.7EV + Color Calibration) 与 LR 的 `autoTone()` **并不等价** — autoTone 会同时调整曝光、对比度、高光、阴影、白色、黑色、清晰度等多个参数，darktable 单次曝光偏移无法完整模拟。仅作为无 LR 时的保底方案，输出质量可能明显低于 LR 结果。
 
-## 5. Phase 5: 智能裁切系统
+## 5. Phase 5: 智能裁切
 
 ### 5.1 三个可配置维度
 
@@ -406,7 +470,7 @@ darktable 默认 scene-referred 管线 (Filmic RGB + Exposure +0.7EV + Color Cal
 - 如果选定构图导致鸟被裁切, 自动降级到 center 模式
 - bird_padding 最小 1.2, 保证鸟体周围至少 10% 空间
 
-## 6. Phase 5 (续): 水印系统
+## 6. Phase 6: 水印
 
 ### 6.1 四种水印类型
 
@@ -531,22 +595,23 @@ watermark_configs = [
 使用 Pydantic BaseModel (与现有 schemas.py 一致):
 
 ```python
+from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 
 class BatchProcessConfig(BaseModel):
     # --- 筛选 ---
-    min_rating: int = 2                         # 0-3
+    min_rating: Literal[0, 1, 2, 3] = 2
 
     # --- 降噪 ---
     denoise_enabled: bool = True
-    denoise_algorithm: str = "DeepPRIME_XD3"    # DeepPRIME_3 | DeepPRIME_XD3
+    denoise_algorithm: Literal["DeepPRIME_3", "DeepPRIME_XD3"] = "DeepPRIME_XD3"
     denoise_luminance: int = 40                 # 0-100
     denoise_chrominance: int = 50               # 0-100
 
     # --- 调色 ---
     auto_tone_enabled: bool = True
-    auto_tone_tool: str = "lightroom"           # lightroom | darktable
+    auto_tone_tool: Literal["lightroom", "darktable"] = "lightroom"
 
     # --- 裁切 ---
     crop_preset: str = "4k_wallpaper"           # 预设ID 或 "custom"
@@ -557,24 +622,28 @@ class BatchProcessConfig(BaseModel):
     watermark_layers: Optional[list[WatermarkConfig]] = None  # preset=custom 时使用
 
     # --- 输出 ---
-    output_format: str = "jpeg"                 # jpeg | tiff | png
+    output_format: Literal["jpeg", "tiff", "png"] = "jpeg"
     output_quality: int = 95                    # JPEG 质量
     output_dir: str = ""                        # 空=默认 data/exports/{task_id}/
 
 
 class CropConfig(BaseModel):
-    aspect_ratio: str = "16:9"
+    aspect_ratio: Literal["16:9", "4:3", "3:2", "1:1", "21:9", "9:16", "original"] = "16:9"
     output_size: Optional[tuple[int, int]] = (3840, 2160)  # None=不缩放, 始终为(width, height)
-    composition: str = "center"                 # center|rule-of-thirds|tight|environmental
+    composition: Literal["center", "rule-of-thirds", "tight", "environmental"] = "center"
     bird_padding: float = Field(default=1.3, ge=1.2)  # 鸟体安全边距倍数, 最小1.2
 
 
 class WatermarkConfig(BaseModel):
-    type: str = "text"                          # text|image|tiled|info-bar
+    type: Literal["text", "image", "tiled", "info-bar"] = "text"
 
     # --- 通用 ---
     opacity: int = 128
-    position: str = "bottom-right"
+    position: Literal[
+        "top-left", "top-center", "top-right",
+        "center-left", "center", "center-right",
+        "bottom-left", "bottom-center", "bottom-right"
+    ] = "bottom-right"
     margin: int = 40
 
     # --- text 专用 ---
@@ -596,14 +665,15 @@ class WatermarkConfig(BaseModel):
     spacing_y: int = 200
 
     # --- info-bar 专用 ---
-    bar_position: str = "bottom"
+    bar_position: Literal["bottom", "top"] = "bottom"
+    bar_mode: Literal["append", "overlay"] = "append"  # append=追加在画面外, overlay=覆盖画面底部
     bar_bg_color: tuple[int, int, int] = (20, 20, 20)
     bar_padding: int = 24
     text_color: tuple[int, int, int] = (230, 230, 230)
     title_font_size: int = 42
     detail_font_size: int = 28
     show_species: bool = True
-    species_lang: str = "cn+en"
+    species_lang: Literal["cn", "en", "cn+en", "scientific"] = "cn+en"
     show_exif: bool = True
     exif_fields: Optional[list[str]] = None  # None=全部
     show_copyright: bool = True
@@ -649,13 +719,15 @@ Response: { "total": 400, "completed": 400,
 
 # 预览裁切效果 (单张, 不保存)
 POST /api/batch-process/preview-crop
-Body: { "photo_id": 123, "crop_config": {...} }
+Body: { "photo_id": "0a09ba42-...", "crop_config": {...} }
 Response: JPEG 缩略图
+Content-Type: image/jpeg
 
 # 预览水印效果 (单张, 不保存)
 POST /api/batch-process/preview-watermark
-Body: { "photo_id": 123, "watermark_layers": [...] }
+Body: { "photo_id": "0a09ba42-...", "watermark_layers": [...] }
 Response: JPEG 缩略图
+Content-Type: image/jpeg
 ```
 
 ### 8.2 任务执行
@@ -680,7 +752,9 @@ CREATE TABLE batch_process_items (
     error_msg TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (photo_id) REFERENCES photos(id)
+    FOREIGN KEY (photo_id) REFERENCES photos(id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id),
+    UNIQUE(task_id, photo_id)
 );
 CREATE INDEX idx_bpi_task_id ON batch_process_items(task_id);
 CREATE INDEX idx_bpi_photo_id ON batch_process_items(photo_id);
@@ -697,7 +771,8 @@ CREATE TABLE processed_photos (
     height INTEGER,
     file_size INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (photo_id) REFERENCES photos(id)
+    FOREIGN KEY (photo_id) REFERENCES photos(id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
 CREATE INDEX idx_pp_task_id ON processed_photos(task_id);
 CREATE INDEX idx_pp_photo_id ON processed_photos(photo_id);
@@ -790,7 +865,7 @@ data/
 └── batch_process_config.json        # 用户上次使用的配置
 ```
 
-中间文件 (denoise/, toned/) 在任务完成后可选清理。
+中间文件 (denoise/, toned/) 在任务成功完成后**自动清理**；任务失败或取消时保留，供用户排查问题或手动续传。
 
 ## 11. 性能估算
 
@@ -850,15 +925,19 @@ data/
 
 最终输出的 JPG 应携带原始 RAW 的关键 EXIF 信息。Pillow 默认不复制 EXIF。
 
-**处理方式**: 使用项目已有的 ExifTool 工具链, 从原始 RAW 复制 EXIF 到最终 JPG:
+**处理方式**: 使用项目已有的 ExifTool 工具链, 从原始 RAW 复制 EXIF 到最终 JPG。需在 `ExifToolManager` 中新增 `copy_metadata` 方法:
 
 ```python
-# 复制 EXIF (排除缩略图, 保留拍摄参数/GPS/日期)
-exiftool_manager.copy_metadata(
-    source=original_raw_path,
-    dest=final_jpg_path,
-    tags=["-all:all", "-icc_profile:all", "--ThumbnailImage"]
-)
+# 新增方法 (tools/exiftool_manager.py)
+def copy_metadata(self, source: str, dest: str,
+                  tags: list[str] | None = None):
+    """从 source 复制 EXIF/XMP 到 dest
+    tags 示例: ["-all:all", "-icc_profile:all", "--ThumbnailImage"]
+    """
+    cmd = ["-overwrite_original", "-TagsFromFile", source]
+    cmd.extend(tags or ["-all:all"])
+    cmd.append(dest)
+    self._execute(cmd)
 ```
 
 遵守 CLAUDE.md 规则: 中文字段 (如 XMP:Title 鸟种名) 通过 UTF-8 临时文件写入。
