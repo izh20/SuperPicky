@@ -3,9 +3,118 @@
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply antialiased;
+  :root {
+    --font-display: 'SF Pro Display', -apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+    --font-text: 'SF Pro Text', -apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
   }
+
+  body {
+    font-family: var(--font-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.374px;
+    line-height: 1.47;
+    @apply bg-surface-light text-text-primary;
+  }
+
+  /* 暗色模式 body */
+  .dark body,
+  body.dark {
+    @apply bg-surface-dark text-text-on-dark;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+  }
+
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 600;
+    line-height: 1.10;
+    letter-spacing: normal;
+  }
+
+  h2 {
+    font-size: 1.75rem;
+    font-weight: 400;
+    line-height: 1.14;
+    letter-spacing: 0.196px;
+  }
+
+  h3 {
+    font-size: 1.31rem;
+    font-weight: 600;
+    line-height: 1.19;
+    letter-spacing: 0.231px;
+  }
+}
+
+@layer components {
+  /* Apple 按钮系统 */
+  .btn-primary {
+    @apply bg-apple-blue text-white px-4 py-2 rounded-lg text-[17px]
+           hover:brightness-110 active:brightness-95
+           focus:outline-none focus:ring-2 focus:ring-apple-blue/50
+           transition-all duration-200 disabled:opacity-50;
+  }
+
+  .btn-dark {
+    @apply bg-text-primary text-white px-4 py-2 rounded-lg text-[17px]
+           hover:bg-[#333336] active:brightness-95
+           focus:outline-none focus:ring-2 focus:ring-apple-blue/50
+           transition-all duration-200 disabled:opacity-50;
+  }
+
+  .btn-pill {
+    @apply border border-apple-link-light text-apple-link-light px-4 py-1.5
+           rounded-pill text-sm
+           hover:bg-apple-link-light hover:text-white
+           transition-all duration-200;
+  }
+
+  .btn-ghost {
+    @apply text-apple-link-light text-sm hover:underline transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-surface-light text-text-primary px-4 py-2 rounded-lg text-sm
+           hover:bg-gray-200 active:bg-gray-300
+           transition-all duration-200 disabled:opacity-50;
+    .dark & {
+      @apply bg-surface-card-dark text-text-on-dark hover:bg-[#333336];
+    }
+  }
+
+  /* Apple 卡片系统 */
+  .card-apple {
+    @apply bg-white rounded-xl;
+  }
+
+  .dark .card-apple {
+    @apply bg-surface-card-dark;
+  }
+
+  .card-apple-elevated {
+    @apply bg-white rounded-xl;
+    box-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+  }
+
+  .dark .card-apple-elevated {
+    @apply bg-surface-card-dark;
+    box-shadow: rgba(0, 0, 0, 0.5) 3px 5px 30px 0px;
+  }
+
+  /* Apple 玻璃导航 */
+  .glass-nav {
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+}
+
+/* 暗色模式下的全局文字颜色 */
+.dark {
+  color-scheme: dark;
 }
 
 /* 自定义滚动条 */
@@ -14,11 +123,17 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  @apply bg-gray-100;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 rounded-full;
+  @apply bg-black/20 rounded-full;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-400;
+  @apply bg-black/30;
+}
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-white/20;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  @apply bg-white/30;
 }

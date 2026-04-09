@@ -1,12 +1,13 @@
 <template>
   <Teleport to="body">
-    <div class="fixed top-4 right-4 z-50 flex flex-col gap-2">
+    <div class="fixed top-14 right-4 z-50 flex flex-col gap-2">
       <TransitionGroup name="toast">
         <div
           v-for="t in toastStore.toasts"
           :key="t.id"
-          class="px-4 py-3 rounded-lg shadow-lg text-white text-sm max-w-sm cursor-pointer"
+          class="px-4 py-3 rounded-xl text-white text-sm max-w-sm cursor-pointer font-text"
           :class="bgClass(t.type)"
+          style="box-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;"
           @click="toastStore.remove(t.id)"
         >
           {{ t.message }}
@@ -22,9 +23,9 @@ import { useToastStore } from '@/stores/toastStore'
 const toastStore = useToastStore()
 
 function bgClass(type: string) {
-  if (type === 'success') return 'bg-green-600'
+  if (type === 'success') return 'bg-emerald-600'
   if (type === 'error') return 'bg-red-600'
-  return 'bg-gray-700'
+  return 'bg-text-primary dark:bg-surface-card-dark'
 }
 </script>
 

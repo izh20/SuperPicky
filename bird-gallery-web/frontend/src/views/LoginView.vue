@@ -1,9 +1,9 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gray-100">
-    <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
+  <div class="min-h-[calc(100vh-48px)] flex items-center justify-center">
+    <div class="card-apple dark:bg-[#1c1c1e] rounded-xl p-8 w-full max-w-sm">
       <div class="flex items-center justify-center gap-2 mb-6">
-        <Bird class="w-8 h-8 text-primary-600" />
-        <h1 class="text-xl font-bold text-gray-800">Bird Gallery</h1>
+        <Bird class="w-8 h-8 text-apple-blue" />
+        <h1 class="text-xl font-bold text-text-primary dark:text-text-on-dark">Bird Gallery</h1>
       </div>
 
       <form @submit.prevent="handleLogin" class="space-y-4">
@@ -14,7 +14,7 @@
             type="text"
             autocomplete="username"
             required
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+            class="w-full px-3 py-2 bg-surface-light dark:bg-white/10 rounded-lg border-none outline-none focus:ring-2 focus:ring-apple-blue/30 text-text-primary dark:text-text-on-dark"
             placeholder="请输入用户名"
           />
         </div>
@@ -25,7 +25,7 @@
             type="password"
             autocomplete="current-password"
             required
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+            class="w-full px-3 py-2 bg-surface-light dark:bg-white/10 rounded-lg border-none outline-none focus:ring-2 focus:ring-apple-blue/30 text-text-primary dark:text-text-on-dark"
             placeholder="请输入密码"
           />
         </div>
@@ -35,7 +35,7 @@
         <button
           type="submit"
           :disabled="loading"
-          class="w-full py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 font-medium"
+          class="btn-primary w-full"
         >
           {{ loading ? '登录中...' : '登录' }}
         </button>

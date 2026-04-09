@@ -1,8 +1,8 @@
 <template>
-  <div class="flex flex-col items-center justify-center py-16 text-gray-400">
+  <div class="flex flex-col items-center justify-center py-16 text-text-tertiary dark:text-text-on-dark-tertiary">
     <component :is="icon" v-if="icon" class="w-12 h-12 mb-4" />
-    <p class="text-lg font-medium text-gray-500">{{ title }}</p>
-    <p v-if="description" class="mt-1 text-sm text-gray-400">{{ description }}</p>
+    <p class="text-lg font-medium text-text-secondary dark:text-text-on-dark-secondary">{{ title }}</p>
+    <p v-if="description" class="mt-1 text-[14px] text-text-tertiary dark:text-text-on-dark-tertiary">{{ description }}</p>
   </div>
 </template>
 

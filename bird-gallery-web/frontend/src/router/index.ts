@@ -70,6 +70,11 @@ const routes = [
     component: () => import('@/views/DashboardView.vue'),
     meta: { title: '仪表盘' },
   },
+  {
+    path: '/batch-process',
+    component: () => import('@/views/BatchProcessView.vue'),
+    meta: { title: '批量处理', requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

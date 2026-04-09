@@ -1,15 +1,15 @@
 <template>
-  <div class="max-w-6xl mx-auto">
+  <div class="max-w-6xl mx-auto px-5 py-6">
     <Spinner v-if="loading" />
-    <div v-else-if="!video" class="text-center py-20 text-gray-400">视频不存在</div>
+    <div v-else-if="!video" class="text-center py-20 text-text-tertiary dark:text-text-on-dark-tertiary">视频不存在</div>
     <div v-else class="flex flex-col gap-6">
       <!-- 导航 -->
       <div class="flex items-center gap-2">
-        <button @click="$router.back()" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+        <button @click="$router.back()" class="flex items-center gap-1 text-sm text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark">
           <ArrowLeft class="w-4 h-4" /> 返回
         </button>
-        <span class="text-gray-300">|</span>
-        <span class="text-sm text-gray-700 font-medium">{{ video.filename }}</span>
+        <span class="text-black/10 dark:text-white/20">|</span>
+        <span class="text-sm text-text-primary dark:text-text-on-dark font-medium">{{ video.filename }}</span>
         <span class="ml-2 px-2 py-0.5 rounded text-xs text-white" :class="statusClass(video.status)">
           {{ statusLabel(video.status) }}
         </span>
@@ -39,9 +39,9 @@
           </div>
 
           <!-- 鸟种时间轴 -->
-          <div v-if="videoStore.segments.length" class="bg-white rounded-xl p-4 border border-gray-100">
-            <h3 class="font-semibold text-gray-700 mb-3 text-sm">鸟种时间轴</h3>
-            <div class="relative h-8 bg-gray-100 rounded overflow-hidden">
+          <div v-if="videoStore.segments.length" class="card-apple dark:bg-surface-card-dark p-4">
+            <h3 class="font-semibold text-text-primary dark:text-text-on-dark mb-3 text-sm">鸟种时间轴</h3>
+            <div class="relative h-8 bg-black/5 dark:bg-white/10 rounded overflow-hidden">
               <div
                 v-for="(seg, i) in videoStore.segments"
                 :key="i"
@@ -54,7 +54,7 @@
               </div>
             </div>
             <div class="flex flex-wrap gap-2 mt-2">
-              <div v-for="(seg, i) in uniqueSpecies" :key="i" class="flex items-center gap-1 text-xs text-gray-600">
+              <div v-for="(seg, i) in uniqueSpecies" :key="i" class="flex items-center gap-1 text-xs text-text-secondary dark:text-text-on-dark-secondary">
                 <div class="w-3 h-3 rounded-sm" :style="{ background: speciesColor(i) }" />
                 {{ seg }}
               </div>
@@ -62,8 +62,8 @@
           </div>
 
           <!-- 分析控制 -->
-          <div class="bg-white rounded-xl p-4 border border-gray-100 flex items-center gap-3">
-            <select v-model="strategy" class="px-2 py-1.5 text-sm border border-gray-200 rounded">
+          <div class="card-apple dark:bg-surface-card-dark p-4 flex items-center gap-3">
+            <select v-model="strategy" class="px-2 py-1.5 text-sm bg-surface-light dark:bg-white/10 border-0 rounded-lg dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40">
               <option value="interval">等间隔（默认）</option>
               <option value="keyframe">关键帧</option>
               <option value="scene">场景变化</option>
@@ -72,7 +72,7 @@
             <button
               @click="analyze"
               :disabled="analyzing"
-              class="px-4 py-1.5 bg-primary-600 text-white text-sm rounded hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              class="px-4 py-1.5 btn-primary text-sm"
             >
               <span v-if="analyzing">分析中… {{ progress }}%</span>
               <span v-else>{{ video.status === 'done' ? '重新分析' : '开始分析' }}</span>
@@ -80,19 +80,19 @@
           </div>
 
           <!-- 导出片段 -->
-          <div v-if="video.status === 'done'" class="bg-white rounded-xl p-4 border border-gray-100">
-            <h3 class="font-semibold text-gray-700 mb-3 text-sm">导出片段</h3>
+          <div v-if="video.status === 'done'" class="card-apple dark:bg-surface-card-dark p-4">
+            <h3 class="font-semibold text-text-primary dark:text-text-on-dark mb-3 text-sm">导出片段</h3>
             <div class="flex items-center gap-2">
-              <label class="text-xs text-gray-500">起始(秒)</label>
+              <label class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary">起始(秒)</label>
               <input v-model.number="clipStart" type="number" min="0" step="0.1"
-                class="w-20 px-2 py-1 text-sm border border-gray-200 rounded" />
-              <label class="text-xs text-gray-500">结束(秒)</label>
+                class="w-20 px-2 py-1 text-sm bg-surface-light dark:bg-white/10 border-0 rounded-lg dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40" />
+              <label class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary">结束(秒)</label>
               <input v-model.number="clipEnd" type="number" min="0" step="0.1"
-                class="w-20 px-2 py-1 text-sm border border-gray-200 rounded" />
+                class="w-20 px-2 py-1 text-sm bg-surface-light dark:bg-white/10 border-0 rounded-lg dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40" />
               <button
                 @click="exportClip"
                 :disabled="exporting || clipStart >= clipEnd"
-                class="px-3 py-1 bg-gray-700 text-white text-sm rounded hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                class="px-3 py-1 bg-text-primary dark:bg-white text-white dark:text-black text-sm rounded-lg hover:opacity-80 disabled:opacity-50 transition-colors"
               >
                 {{ exporting ? '导出中…' : '导出' }}
               </button>
@@ -103,36 +103,36 @@
         <!-- 右：精彩帧 + 统计 -->
         <div class="w-72 flex flex-col gap-4">
           <!-- 精彩帧 -->
-          <div v-if="videoStore.highlights.length" class="bg-white rounded-xl p-4 border border-gray-100">
-            <h3 class="font-semibold text-gray-700 mb-3 text-sm">精彩帧</h3>
+          <div v-if="videoStore.highlights.length" class="card-apple dark:bg-surface-card-dark p-4">
+            <h3 class="font-semibold text-text-primary dark:text-text-on-dark mb-3 text-sm">精彩帧</h3>
             <div class="flex flex-col gap-2">
               <div
                 v-for="f in videoStore.highlights"
                 :key="f.id"
-                class="flex items-center gap-2 p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100"
+                class="flex items-center gap-2 p-2 bg-surface-light dark:bg-white/5 rounded-lg cursor-pointer hover:bg-black/5 dark:hover:bg-white/10"
                 @click="seekTo(f.timestamp_sec)"
               >
-                <div class="w-16 h-10 bg-gray-200 rounded overflow-hidden shrink-0">
+                <div class="w-16 h-10 bg-black/5 dark:bg-white/5 rounded overflow-hidden shrink-0">
                   <img :src="f.file_path" class="w-full h-full object-cover" loading="lazy" @error="e => ((e.target as HTMLImageElement).style.display='none')" />
                 </div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-xs font-medium truncate">
+                  <p class="text-xs font-medium truncate dark:text-text-on-dark">
                     {{ f.birds?.[0]?.species_cn ?? '未识别' }}
                   </p>
-                  <p class="text-xs text-gray-400">{{ formatTime(f.timestamp_sec) }}</p>
+                  <p class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary">{{ formatTime(f.timestamp_sec) }}</p>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- 物种统计 -->
-          <div v-if="videoStore.segments.length" class="bg-white rounded-xl p-4 border border-gray-100">
-            <h3 class="font-semibold text-gray-700 mb-3 text-sm">鸟种统计</h3>
+          <div v-if="videoStore.segments.length" class="card-apple dark:bg-surface-card-dark p-4">
+            <h3 class="font-semibold text-text-primary dark:text-text-on-dark mb-3 text-sm">鸟种统计</h3>
             <div class="flex flex-col gap-1">
               <div v-for="(seg, i) in speciesStats" :key="i" class="flex items-center gap-2 text-sm">
                 <div class="w-2 h-2 rounded-full shrink-0" :style="{ background: speciesColor(i) }" />
-                <span class="flex-1 truncate">{{ seg.species }}</span>
-                <span class="text-xs text-gray-400">{{ formatDuration(seg.duration) }}</span>
+                <span class="flex-1 truncate dark:text-text-on-dark">{{ seg.species }}</span>
+                <span class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary">{{ formatDuration(seg.duration) }}</span>
               </div>
             </div>
           </div>

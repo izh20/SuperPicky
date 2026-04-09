@@ -201,3 +201,93 @@ export interface PhotoFilters {
   page?: number
   page_size?: number
 }
+
+// 批处理
+export interface CropConfig {
+  aspect_ratio: '16:9' | '4:3' | '3:2' | '1:1' | '21:9' | '9:16' | 'original'
+  output_size: [number, number] | null
+  composition: 'center' | 'rule-of-thirds' | 'tight' | 'environmental'
+  bird_padding: number
+}
+
+export interface WatermarkConfig {
+  type: 'text' | 'image' | 'tiled' | 'info-bar'
+  opacity?: number
+  position?: string
+  margin?: number
+  text?: string
+  font?: string
+  font_size?: number
+  color?: [number, number, number]
+  shadow?: boolean
+  shadow_color?: [number, number, number]
+  shadow_offset?: number
+  logo_path?: string
+  logo_scale?: number
+  rotation?: number
+  spacing_x?: number
+  spacing_y?: number
+  bar_position?: 'bottom' | 'top'
+  bar_mode?: 'append' | 'overlay'
+  bar_bg_color?: [number, number, number]
+  bar_padding?: number
+  text_color?: [number, number, number]
+  title_font_size?: number
+  detail_font_size?: number
+  show_species?: boolean
+  species_lang?: 'cn' | 'en' | 'cn+en' | 'scientific'
+  show_exif?: boolean
+  exif_fields?: string[]
+  show_copyright?: boolean
+  copyright_text?: string
+}
+
+export interface BatchProcessConfig {
+  min_rating: 0 | 1 | 2 | 3
+  denoise_enabled: boolean
+  denoise_algorithm: 'DeepPRIME_3' | 'DeepPRIME_XD3'
+  denoise_luminance: number
+  denoise_chrominance: number
+  auto_tone_enabled: boolean
+  auto_tone_tool: 'lightroom' | 'darktable'
+  crop_preset: string
+  crop_config?: CropConfig
+  watermark_preset: string
+  watermark_layers?: WatermarkConfig[]
+  output_format: 'jpeg' | 'tiff' | 'png'
+  output_quality: number
+  output_dir?: string
+}
+
+export interface BatchProcessStartResponse {
+  task_id: string
+  total_photos: number
+  filtered_photos: number
+  estimated_time_minutes: number
+}
+
+export interface BatchProcessResultItem {
+  photo_id: string
+  filename: string
+  phase: string
+  final_output: string | null
+  error_msg: string | null
+}
+
+export interface BatchProcessResultsResponse {
+  task_id: string
+  total: number
+  completed: number
+  failed: number
+  items: BatchProcessResultItem[]
+}
+
+export interface BatchProcessOptions {
+  crop_presets: Record<string, { label: string; aspect_ratio: string; composition: string }>
+  watermark_presets: Record<string, { label: string }>
+  denoise_algorithms: string[]
+  auto_tone_tools: string[]
+  output_formats: string[]
+  aspect_ratios: string[]
+  compositions: string[]
+}

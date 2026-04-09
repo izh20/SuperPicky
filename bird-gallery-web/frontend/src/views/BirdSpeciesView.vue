@@ -1,19 +1,19 @@
 <template>
-  <div class="max-w-6xl mx-auto">
+  <div class="max-w-6xl mx-auto px-5 py-6">
     <!-- 导航 -->
     <div class="flex items-center gap-2 mb-4">
-      <button @click="$router.back()" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <button @click="$router.back()" class="flex items-center gap-1 text-sm text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark">
         <ArrowLeft class="w-4 h-4" /> 鸟种目录
       </button>
     </div>
 
     <!-- 物种标题 -->
-    <div class="bg-white rounded-xl p-5 border border-gray-100 mb-6">
-      <h1 class="text-2xl font-bold text-gray-800">{{ species }}</h1>
-      <p v-if="speciesInfo" class="text-sm text-gray-500 mt-1">
+    <div class="card-apple dark:bg-surface-card-dark p-5 mb-6">
+      <h1 class="text-2xl font-semibold text-text-primary dark:text-text-on-dark font-display">{{ species }}</h1>
+      <p v-if="speciesInfo" class="text-sm text-text-secondary dark:text-text-on-dark-secondary mt-1">
         {{ speciesInfo.species_en }} · <em>{{ speciesInfo.scientific_name }}</em>
       </p>
-      <p class="text-sm text-primary-600 font-medium mt-1">{{ speciesInfo?.photo_count ?? 0 }} 张照片</p>
+      <p class="text-sm text-apple-blue font-medium mt-1">{{ speciesInfo?.photo_count ?? 0 }} 张照片</p>
     </div>
 
     <!-- 照片网格 -->
@@ -24,7 +24,7 @@
         v-for="photo in photos"
         :key="photo.id"
         :to="`/photos/${photo.id}`"
-        class="group relative rounded-lg overflow-hidden bg-gray-100 shadow-sm hover:shadow-md transition-shadow"
+        class="group relative rounded-lg overflow-hidden bg-black/5 dark:bg-white/5 shadow-sm hover:shadow-apple transition-shadow"
       >
         <div class="aspect-square overflow-hidden">
           <img
@@ -44,7 +44,7 @@
       <button
         @click="loadMore"
         :disabled="loading"
-        class="px-6 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        class="btn-pill disabled:opacity-50"
       >加载更多</button>
     </div>
   </div>

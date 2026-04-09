@@ -1,6 +1,6 @@
 <template>
   <div
-    class="relative rounded-lg overflow-hidden bg-gray-100 cursor-pointer"
+    class="relative rounded-[5px] overflow-hidden bg-surface-light dark:bg-surface-card-dark cursor-pointer group transition-all duration-300 hover:scale-[1.02] hover:shadow-apple"
     @click="emit('click')"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
@@ -31,7 +31,7 @@
     >
       <div
         class="w-5 h-5 rounded border-2 flex items-center justify-center text-white text-xs"
-        :class="selected ? 'bg-blue-600 border-blue-600' : 'bg-white/70 border-gray-400'"
+        :class="selected ? 'bg-apple-blue border-apple-blue' : 'bg-white/70 border-gray-400'"
       >
         <span v-if="selected">✓</span>
       </div>

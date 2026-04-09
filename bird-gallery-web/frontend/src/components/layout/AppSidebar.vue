@@ -31,6 +31,7 @@ const navItems = computed(() => {
   ]
   if (authStore.isLoggedIn) {
     items.push({ to: '/upload', label: '上传' })
+    items.push({ to: '/batch-process', label: '批量处理' })
   }
   if (authStore.isAdmin) {
     items.push({ to: '/settings', label: '系统设置' })

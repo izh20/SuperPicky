@@ -1,142 +1,140 @@
 <template>
-  <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto shrink-0 p-4 space-y-4 text-sm">
-    <!-- 搜索 -->
-    <div>
-      <label class="block text-gray-500 mb-1">搜索</label>
-      <input
-        type="text"
-        :value="modelValue.q ?? ''"
-        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:border-primary-500 focus:outline-none"
-        placeholder="文件名 / 物种"
-        @input="emit('update', 'q', ($event.target as HTMLInputElement).value || undefined)"
-      />
-    </div>
+  <div class="px-5 py-3 text-[14px]">
+    <div class="flex flex-wrap items-end gap-3">
+      <!-- 搜索 -->
+      <div class="flex flex-col gap-1">
+        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">搜索</label>
+        <input
+          type="text"
+          :value="modelValue.q ?? ''"
+          class="filter-input w-44"
+          placeholder="文件名 / 物种"
+          @input="emit('update', 'q', ($event.target as HTMLInputElement).value || undefined)"
+        />
+      </div>
 
-    <!-- 物种（下拉） -->
-    <div>
-      <label class="block text-gray-500 mb-1">鸟种</label>
-      <select
-        :value="modelValue.species ?? ''"
-        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:border-primary-500 focus:outline-none bg-white"
-        @change="emit('update', 'species', ($event.target as HTMLSelectElement).value || undefined)"
-      >
-        <option value="">全部鸟种</option>
-        <option v-for="s in options.species" :key="s" :value="s">{{ s }}</option>
-      </select>
-    </div>
-
-    <!-- 相机（下拉） -->
-    <div>
-      <label class="block text-gray-500 mb-1">相机</label>
-      <select
-        :value="modelValue.camera ?? ''"
-        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:border-primary-500 focus:outline-none bg-white"
-        @change="emit('update', 'camera', ($event.target as HTMLSelectElement).value || undefined)"
-      >
-        <option value="">全部相机</option>
-        <option v-for="c in options.cameras" :key="c" :value="c">{{ c }}</option>
-      </select>
-    </div>
-
-    <!-- 拍摄日期（下拉） -->
-    <div>
-      <label class="block text-gray-500 mb-1">拍摄日期</label>
-      <select
-        :value="modelValue.date_from ?? ''"
-        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:border-primary-500 focus:outline-none bg-white"
-        @change="onDateSelect(($event.target as HTMLSelectElement).value)"
-      >
-        <option value="">全部日期</option>
-        <option v-for="d in options.dates" :key="d" :value="d">{{ d }}</option>
-      </select>
-    </div>
-
-    <!-- 评分 -->
-    <div>
-      <label class="block text-gray-500 mb-1">评分</label>
-      <div class="grid grid-cols-2 gap-2">
+      <!-- 物种 -->
+      <div class="flex flex-col gap-1">
+        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">鸟种</label>
         <select
-          :value="modelValue.rating_min ?? ''"
-          class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:border-primary-500 focus:outline-none bg-white"
-          @change="emit('update', 'rating_min', toNumSelect($event))"
+          :value="modelValue.species ?? ''"
+          class="filter-input w-36"
+          @change="emit('update', 'species', ($event.target as HTMLSelectElement).value || undefined)"
         >
-          <option value="">最低</option>
-          <option v-for="r in [0, 1, 2, 3]" :key="r" :value="r">≥ {{ r }} 星</option>
-        </select>
-        <select
-          :value="modelValue.rating_max ?? ''"
-          class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:border-primary-500 focus:outline-none bg-white"
-          @change="emit('update', 'rating_max', toNumSelect($event))"
-        >
-          <option value="">最高</option>
-          <option v-for="r in [0, 1, 2, 3]" :key="r" :value="r">≤ {{ r }} 星</option>
+          <option value="">全部</option>
+          <option v-for="s in options.species" :key="s" :value="s">{{ s }}</option>
         </select>
       </div>
-    </div>
 
-    <!-- 置信度 -->
-    <div>
-      <label class="block text-gray-500 mb-1">
-        识别置信度 ≥ <strong class="text-gray-700">{{ confidenceVal }}%</strong>
-      </label>
-      <input
-        type="range"
-        :value="confidenceVal"
-        min="0" max="100" step="5"
-        class="w-full accent-primary-600"
-        @input="onConfidenceInput(($event.target as HTMLInputElement).value)"
-      />
-      <div class="flex justify-between text-xs text-gray-400 mt-0.5">
-        <span>0%</span>
-        <span>100%</span>
+      <!-- 相机 -->
+      <div class="flex flex-col gap-1">
+        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">相机</label>
+        <select
+          :value="modelValue.camera ?? ''"
+          class="filter-input w-36"
+          @change="emit('update', 'camera', ($event.target as HTMLSelectElement).value || undefined)"
+        >
+          <option value="">全部</option>
+          <option v-for="c in options.cameras" :key="c" :value="c">{{ c }}</option>
+        </select>
       </div>
-    </div>
 
-    <!-- GPS -->
-    <div class="flex items-center gap-2">
-      <input
-        type="checkbox"
-        :checked="modelValue.has_gps ?? false"
-        class="accent-primary-600"
-        @change="emit('update', 'has_gps', ($event.target as HTMLInputElement).checked || undefined)"
-      />
-      <label class="text-gray-500">仅含 GPS 信息</label>
-    </div>
+      <!-- 日期 -->
+      <div class="flex flex-col gap-1">
+        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">日期</label>
+        <select
+          :value="modelValue.date_from ?? ''"
+          class="filter-input w-36"
+          @change="onDateSelect(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">全部</option>
+          <option v-for="d in options.dates" :key="d" :value="d">{{ d }}</option>
+        </select>
+      </div>
 
-    <!-- 飞版筛选 -->
-    <div class="flex items-center gap-2">
-      <input
-        type="checkbox"
-        :checked="modelValue.has_flying ?? false"
-        class="accent-primary-600"
-        @change="emit('update', 'has_flying', ($event.target as HTMLInputElement).checked || undefined)"
-      />
-      <label class="text-gray-500">仅看飞版</label>
-    </div>
+      <!-- 评分 -->
+      <div class="flex flex-col gap-1">
+        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">评分</label>
+        <div class="flex gap-1.5">
+          <select
+            :value="modelValue.rating_min ?? ''"
+            class="filter-input w-20"
+            @change="emit('update', 'rating_min', toNumSelect($event))"
+          >
+            <option value="">最低</option>
+            <option v-for="r in [0, 1, 2, 3]" :key="r" :value="r">≥ {{ r }}★</option>
+          </select>
+          <select
+            :value="modelValue.rating_max ?? ''"
+            class="filter-input w-20"
+            @change="emit('update', 'rating_max', toNumSelect($event))"
+          >
+            <option value="">最高</option>
+            <option v-for="r in [0, 1, 2, 3]" :key="r" :value="r">≤ {{ r }}★</option>
+          </select>
+        </div>
+      </div>
 
-    <!-- 识别状态 -->
-    <div>
-      <label class="block text-gray-500 mb-1">识别状态</label>
-      <select
-        :value="modelValue.recognized ?? ''"
-        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:border-primary-500 focus:outline-none bg-white"
-        @change="emit('update', 'recognized', ($event.target as HTMLSelectElement).value || undefined)"
+      <!-- 识别状态 -->
+      <div class="flex flex-col gap-1">
+        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">状态</label>
+        <select
+          :value="modelValue.recognized ?? ''"
+          class="filter-input w-28"
+          @change="emit('update', 'recognized', ($event.target as HTMLSelectElement).value || undefined)"
+        >
+          <option value="">全部</option>
+          <option value="yes">已识别</option>
+          <option value="no">未识别</option>
+          <option value="no_bird">无鸟</option>
+        </select>
+      </div>
+
+      <!-- 置信度 -->
+      <div class="flex flex-col gap-1">
+        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">
+          置信度 ≥ <strong class="text-text-primary dark:text-text-on-dark">{{ confidenceVal }}%</strong>
+        </label>
+        <input
+          type="range"
+          :value="confidenceVal"
+          min="0" max="100" step="5"
+          class="w-28 accent-apple-blue"
+          @input="onConfidenceInput(($event.target as HTMLInputElement).value)"
+        />
+      </div>
+
+      <!-- 复选框组 -->
+      <div class="flex items-center gap-4 py-1">
+        <label class="flex items-center gap-1.5 text-[14px] text-text-secondary dark:text-text-on-dark-secondary cursor-pointer">
+          <input
+            type="checkbox"
+            :checked="modelValue.has_gps ?? false"
+            class="accent-apple-blue"
+            @change="emit('update', 'has_gps', ($event.target as HTMLInputElement).checked || undefined)"
+          />
+          GPS
+        </label>
+        <label class="flex items-center gap-1.5 text-[14px] text-text-secondary dark:text-text-on-dark-secondary cursor-pointer">
+          <input
+            type="checkbox"
+            :checked="modelValue.has_flying ?? false"
+            class="accent-apple-blue"
+            @change="emit('update', 'has_flying', ($event.target as HTMLInputElement).checked || undefined)"
+          />
+          飞版
+        </label>
+      </div>
+
+      <!-- 重置 -->
+      <button
+        class="btn-ghost text-[12px] py-1"
+        @click="emit('reset')"
       >
-        <option value="">全部</option>
-        <option value="yes">已识别到鸟</option>
-        <option value="no">未识别</option>
-        <option value="no_bird">无鸟（已处理）</option>
-      </select>
+        重置
+      </button>
     </div>
-
-    <!-- 重置 -->
-    <button
-      class="w-full text-center text-sm text-primary-600 hover:text-primary-800 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-      @click="emit('reset')"
-    >
-      重置筛选
-    </button>
-  </aside>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -196,3 +194,14 @@ function toNumSelect(e: Event): number | undefined {
   return v !== '' ? Number(v) : undefined
 }
 </script>
+
+<style scoped>
+.filter-input {
+  @apply px-2.5 py-1.5 text-[14px] rounded-lg
+         bg-surface-light dark:bg-white/10
+         text-text-primary dark:text-text-on-dark
+         border-none outline-none
+         focus:ring-2 focus:ring-apple-blue/30
+         transition-all;
+}
+</style>

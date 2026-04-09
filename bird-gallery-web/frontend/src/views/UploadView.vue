@@ -1,12 +1,12 @@
 <template>
-  <div class="max-w-3xl mx-auto">
-    <h1 class="text-xl font-bold text-gray-800 mb-6">上传照片/视频</h1>
+  <div class="max-w-3xl mx-auto px-5 py-6">
+    <h1 class="dark:text-text-on-dark mb-6">上传照片/视频</h1>
 
     <!-- 拖拽区域 -->
     <div
       ref="dropZone"
       class="border-2 border-dashed rounded-xl p-12 text-center transition-colors"
-      :class="dragging ? 'border-primary-400 bg-primary-50' : 'border-gray-300 bg-gray-50 hover:border-gray-400'"
+      :class="dragging ? 'border-apple-blue bg-apple-blue/5' : 'border-black/10 dark:border-white/10 bg-surface-light dark:bg-surface-card-dark hover:border-black/20 dark:hover:border-white/20'"
       @dragover.prevent="dragging = true"
       @dragleave="dragging = false"
       @drop.prevent="onDrop"

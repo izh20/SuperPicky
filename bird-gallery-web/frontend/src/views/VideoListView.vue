@@ -1,15 +1,15 @@
 <template>
-  <div class="max-w-5xl mx-auto">
+  <div class="max-w-5xl mx-auto px-5 py-6">
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-xl font-bold text-gray-800">视频</h1>
+      <h1 class="text-xl font-semibold text-text-primary dark:text-text-on-dark font-display">视频</h1>
       <div class="flex items-center gap-2">
         <!-- 选择模式 -->
         <button
           @click="toggleSelectMode"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded transition-colors"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors"
           :class="selectMode
-            ? 'bg-primary-100 text-primary-700 border border-primary-300'
-            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+            ? 'bg-apple-blue/10 text-apple-blue'
+            : 'text-text-tertiary dark:text-text-on-dark-tertiary hover:bg-black/5 dark:hover:bg-white/10'"
         >
           <CheckSquare class="w-4 h-4" />
           {{ selectMode ? '退出选择' : '选择' }}
@@ -17,11 +17,11 @@
         <template v-if="selectMode">
           <button
             @click="selectAll"
-            class="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:text-primary-600"
+            class="flex items-center gap-1 px-2 py-1.5 text-xs text-text-secondary dark:text-text-on-dark-secondary hover:text-apple-blue"
           >
             {{ selected.size === videoStore.list.length ? '取消全选' : '全选' }}
           </button>
-          <span v-if="selected.size > 0" class="text-xs text-gray-500">已选 {{ selected.size }} 个</span>
+          <span v-if="selected.size > 0" class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary">已选 {{ selected.size }} 个</span>
           <button
             v-if="selected.size > 0 && authStore.isAdmin"
             @click="batchDelete"
@@ -34,7 +34,7 @@
         </template>
         <RouterLink
           to="/upload"
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 transition-colors"
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-apple-blue text-white text-sm rounded-lg hover:bg-apple-blue/90 transition-colors"
         >
           <Upload class="w-4 h-4" /> 上传视频
         </RouterLink>
@@ -43,8 +43,8 @@
           :disabled="batchAnalyzing"
           class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors"
           :class="batchAnalyzing
-            ? 'bg-blue-100 text-blue-700 border border-blue-300 cursor-wait'
-            : 'bg-blue-600 text-white hover:bg-blue-700'"
+            ? 'bg-apple-blue/10 text-apple-blue cursor-wait'
+            : 'bg-apple-blue text-white hover:bg-apple-blue/90'"
         >
           <Scan class="w-4 h-4" :class="{ 'animate-spin': batchAnalyzing }" />
           {{ batchAnalyzing ? `分析中 ${batchProgress}%` : '一键分析全部' }}
@@ -63,7 +63,7 @@
       <div
         v-for="v in videoStore.list"
         :key="v.id"
-        class="bg-white rounded-xl overflow-hidden border border-gray-100 hover:shadow-md transition-shadow cursor-pointer relative"
+        class="card-apple dark:bg-surface-card-dark overflow-hidden hover:shadow-apple transition-shadow cursor-pointer relative"
         @click="onCardClick(v.id)"
       >
         <!-- 选择复选框 -->
@@ -74,7 +74,7 @@
         >
           <div
             class="w-5 h-5 rounded border-2 flex items-center justify-center transition-colors"
-            :class="selected.has(v.id) ? 'bg-primary-600 border-primary-600' : 'bg-white/80 border-gray-300'"
+            :class="selected.has(v.id) ? 'bg-apple-blue border-apple-blue' : 'bg-white/80 dark:bg-surface-card-dark/80 border-black/10 dark:border-white/20'"
           >
             <Check v-if="selected.has(v.id)" class="w-3 h-3 text-white" />
           </div>
@@ -90,8 +90,8 @@
           <Video class="w-10 h-10 opacity-30 absolute" />
         </div>
         <div class="p-3">
-          <p class="font-medium text-sm truncate">{{ v.filename }}</p>
-          <div class="flex items-center gap-2 mt-1 text-xs text-gray-500">
+          <p class="font-medium text-sm truncate dark:text-text-on-dark">{{ v.filename }}</p>
+          <div class="flex items-center gap-2 mt-1 text-xs text-text-tertiary dark:text-text-on-dark-tertiary">
             <span v-if="v.duration_seconds">{{ formatDuration(v.duration_seconds) }}</span>
             <span v-if="v.width && v.height">{{ v.width }}×{{ v.height }}</span>
             <span

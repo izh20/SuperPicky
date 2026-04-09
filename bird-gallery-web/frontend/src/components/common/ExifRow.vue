@@ -1,7 +1,7 @@
 <template>
   <tr v-if="value">
-    <td class="py-1 pr-4 text-sm text-gray-500 whitespace-nowrap">{{ label }}</td>
-    <td class="py-1 text-sm text-gray-800">{{ value }}</td>
+    <td class="py-1 pr-4 text-[14px] text-text-tertiary dark:text-text-on-dark-tertiary whitespace-nowrap">{{ label }}</td>
+    <td class="py-1 text-[14px] text-text-primary dark:text-text-on-dark">{{ value }}</td>
   </tr>
 </template>
 

@@ -1,173 +1,191 @@
 <template>
-  <div class="flex h-full -m-4 overflow-hidden">
-    <!-- 筛选侧栏 -->
-    <FilterPanel
-      :model-value="photoStore.filters"
-      @update="onFilterUpdate"
-      @reset="onReset"
-    />
+  <div class="flex flex-col h-[calc(100vh-48px)] overflow-hidden">
+    <!-- 工具栏 -->
+    <div class="flex items-center gap-3 px-5 py-2.5 bg-white/80 dark:bg-surface-card-dark/80 backdrop-blur-sm border-b border-black/5 dark:border-white/10 shrink-0">
+      <span class="text-[14px] text-text-tertiary dark:text-text-on-dark-tertiary">
+        共 <strong class="text-text-primary dark:text-text-on-dark">{{ photoStore.total }}</strong> 张
+      </span>
 
-    <!-- 主内容区 -->
-    <div class="flex-1 flex flex-col overflow-hidden">
-      <!-- 工具栏 -->
-      <div class="flex items-center gap-3 px-4 py-2 bg-white border-b border-gray-100">
-        <span class="text-sm text-gray-500">
-          共 <strong>{{ photoStore.total }}</strong> 张
-        </span>
-        <div class="flex-1" />
-        <!-- 选择模式 -->
+      <!-- 筛选切换 -->
+      <button
+        @click="filterOpen = !filterOpen"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-[14px] rounded-lg transition-all"
+        :class="filterOpen
+          ? 'bg-apple-blue/10 text-apple-blue dark:bg-apple-link-dark/15 dark:text-apple-link-dark'
+          : 'text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark hover:bg-black/5 dark:hover:bg-white/10'"
+      >
+        <SlidersHorizontal class="w-4 h-4" />
+        筛选
+      </button>
+
+      <div class="flex-1"></div>
+
+      <!-- 选择模式 -->
+      <button
+        @click="toggleSelectMode"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-[14px] rounded-lg transition-all"
+        :class="selectMode
+          ? 'bg-apple-blue/10 text-apple-blue'
+          : 'text-text-tertiary dark:text-text-on-dark-tertiary hover:bg-black/5 dark:hover:bg-white/10'"
+      >
+        <CheckSquare class="w-4 h-4" />
+        {{ selectMode ? '退出选择' : '选择' }}
+      </button>
+
+      <template v-if="selectMode">
         <button
-          @click="toggleSelectMode"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded transition-colors"
-          :class="selectMode
-            ? 'bg-primary-100 text-primary-700 border border-primary-300'
-            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+          @click="selectAll"
+          class="text-[12px] text-apple-link-light dark:text-apple-link-dark hover:underline"
         >
-          <CheckSquare class="w-4 h-4" />
-          {{ selectMode ? '退出选择' : '选择' }}
+          {{ selected.size > 0 ? '取消全选' : `全选 (${Math.min(photoStore.total, 500)})` }}
         </button>
-        <!-- 选择模式工具栏 -->
-        <template v-if="selectMode">
-          <button
-            @click="selectAll"
-            class="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:text-primary-600"
-          >
-            {{ selected.size > 0 ? '取消全选' : `全选 (${Math.min(photoStore.total, 500)})` }}
-          </button>
-          <span v-if="selected.size > 0" class="text-xs text-gray-500">已选 {{ selected.size }} 张</span>
-          <button
-            v-if="selected.size > 0 && authStore.isAdmin"
-            @click="batchDelete"
-            :disabled="deleting"
-            class="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
-          >
-            <Trash2 class="w-4 h-4" />
-            {{ deleting ? '删除中…' : `删除 (${selected.size})` }}
-          </button>
-        </template>
-        <!-- 一键识别 -->
+        <span v-if="selected.size > 0" class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">已选 {{ selected.size }} 张</span>
         <button
-          @click="recognizeAll"
-          :disabled="recognizing"
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+          v-if="selected.size > 0 && authStore.isAdmin"
+          @click="batchDelete"
+          :disabled="deleting"
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-[14px] rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
-          <Zap class="w-4 h-4" />
-          <span v-if="recognizing">识别中 ({{ recognizeProgress }}%)…</span>
-          <span v-else>一键识别全部</span>
+          <Trash2 class="w-4 h-4" />
+          {{ deleting ? '删除中…' : `删除 (${selected.size})` }}
         </button>
-        <!-- 批量操作 -->
+      </template>
+
+      <!-- 一键识别 -->
+      <button
+        @click="recognizeAll"
+        :disabled="recognizing"
+        class="btn-primary !text-[14px] !px-3 !py-1.5 flex items-center gap-1.5"
+      >
+        <Zap class="w-4 h-4" />
+        <span v-if="recognizing">识别中 ({{ recognizeProgress }}%)…</span>
+        <span v-else>一键识别</span>
+      </button>
+
+      <button
+        v-if="selected.size > 0 && !selectMode"
+        @click="batchRecognize"
+        class="btn-primary !text-[14px] !px-3 !py-1.5 flex items-center gap-1.5"
+      >
+        <Cpu class="w-4 h-4" />识别选中 ({{ selected.size }})
+      </button>
+
+      <!-- 视图切换 -->
+      <div class="flex bg-black/5 dark:bg-white/10 rounded-lg overflow-hidden">
         <button
-          v-if="selected.size > 0 && !selectMode"
-          @click="batchRecognize"
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 text-white text-sm rounded hover:bg-primary-700 transition-colors"
+          v-for="v in ['grid', 'list']"
+          :key="v"
+          @click="viewMode = v as 'grid' | 'list'"
+          class="px-2.5 py-1.5 text-sm transition-all"
+          :class="viewMode === v
+            ? 'bg-white dark:bg-white/20 text-text-primary dark:text-text-on-dark shadow-sm'
+            : 'text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark'"
         >
-          <Cpu class="w-4 h-4" />识别选中 ({{ selected.size }})
+          <LayoutGrid v-if="v === 'grid'" class="w-4 h-4" />
+          <List v-else class="w-4 h-4" />
         </button>
-        <!-- 视图切换 -->
-        <div class="flex border border-gray-200 rounded overflow-hidden">
-          <button
-            v-for="v in ['grid', 'list']"
-            :key="v"
-            @click="viewMode = v as 'grid' | 'list'"
-            class="px-2 py-1 text-sm transition-colors"
-            :class="viewMode === v ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+      </div>
+    </div>
+
+    <!-- 可折叠筛选面板 -->
+    <Transition name="filter-slide">
+      <div v-if="filterOpen" class="bg-white dark:bg-surface-card-dark border-b border-black/5 dark:border-white/10 shrink-0">
+        <FilterPanel
+          :model-value="photoStore.filters"
+          @update="onFilterUpdate"
+          @reset="onReset"
+        />
+      </div>
+    </Transition>
+
+    <!-- 照片网格 / 列表 -->
+    <div ref="scrollEl" class="flex-1 overflow-y-auto px-5 py-4">
+      <!-- 识别进度条 -->
+      <div v-if="recognizing" class="mb-4 card-apple p-4 dark:text-text-on-dark">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <Zap class="w-4 h-4 text-emerald-500 animate-pulse" />
+            <span class="text-[14px] font-medium">正在识别鸟类并评分…</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-[14px] font-mono text-emerald-500">{{ recognizeProgress }}%</span>
+            <button
+              @click="stopRecognize"
+              class="flex items-center gap-1 px-2.5 py-1 text-[12px] text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+            >
+              <Square class="w-3 h-3" />
+              停止
+            </button>
+          </div>
+        </div>
+        <div class="w-full bg-black/5 dark:bg-white/10 rounded-full h-1.5">
+          <div
+            class="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
+            :style="{ width: recognizeProgress + '%' }"
+          ></div>
+        </div>
+        <p class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary mt-1.5">
+          {{ recognizeStatusText }}
+        </p>
+        <!-- 实时识别结果日志 -->
+        <div
+          v-if="recognizeResults.length > 0"
+          ref="logEl"
+          class="mt-3 max-h-48 overflow-y-auto bg-surface-light dark:bg-black/20 rounded-lg p-2 space-y-0.5"
+        >
+          <div
+            v-for="(item, idx) in recognizeResults"
+            :key="idx"
+            class="text-[12px] font-mono leading-5 flex items-center gap-1.5"
           >
-            <LayoutGrid v-if="v === 'grid'" class="w-4 h-4" />
-            <List v-else class="w-4 h-4" />
-          </button>
+            <template v-if="item.error">
+              <span class="text-red-500">✗</span>
+              <span class="text-text-tertiary dark:text-text-on-dark-tertiary truncate">{{ item.filename }}</span>
+              <span class="text-red-400">— 识别失败</span>
+              <span v-if="item.elapsed" class="text-text-tertiary dark:text-text-on-dark-tertiary ml-auto shrink-0">{{ item.elapsed }}s</span>
+            </template>
+            <template v-else-if="item.species_cn">
+              <span class="text-emerald-500">✓</span>
+              <span class="text-text-tertiary dark:text-text-on-dark-tertiary truncate">{{ item.filename }}</span>
+              <span class="text-text-tertiary dark:text-text-on-dark-tertiary">—</span>
+              <span class="text-emerald-600 dark:text-emerald-400 font-medium">{{ item.species_cn }}</span>
+              <span v-if="item.rating != null && item.rating >= 0" class="text-amber-500">{{ '⭐'.repeat(item.rating) }}{{ item.rating === 0 ? '☆' : '' }}</span>
+              <span v-if="item.elapsed" class="text-text-tertiary dark:text-text-on-dark-tertiary ml-auto shrink-0">{{ item.elapsed }}s</span>
+            </template>
+            <template v-else>
+              <span class="text-text-tertiary dark:text-text-on-dark-tertiary">○</span>
+              <span class="text-text-tertiary dark:text-text-on-dark-tertiary truncate">{{ item.filename }}</span>
+              <span class="text-text-tertiary dark:text-text-on-dark-tertiary">— 未检测到鸟类</span>
+              <span v-if="item.elapsed" class="text-text-tertiary dark:text-text-on-dark-tertiary ml-auto shrink-0">{{ item.elapsed }}s</span>
+            </template>
+          </div>
         </div>
       </div>
 
-      <!-- 照片网格 / 列表 -->
-      <div ref="scrollEl" class="flex-1 overflow-y-auto p-4">
-        <!-- 识别进度条 -->
-        <div v-if="recognizing" class="mb-4 bg-white border border-emerald-200 rounded-lg p-4 shadow-sm">
-          <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-2">
-              <Zap class="w-4 h-4 text-emerald-600 animate-pulse" />
-              <span class="text-sm font-medium text-gray-700">正在识别鸟类并评分…</span>
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="text-sm font-mono text-emerald-600">{{ recognizeProgress }}%</span>
-              <button
-                @click="stopRecognize"
-                class="flex items-center gap-1 px-2.5 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
-              >
-                <Square class="w-3 h-3" />
-                停止
-              </button>
-            </div>
-          </div>
-          <div class="w-full bg-gray-200 rounded-full h-2.5">
-            <div
-              class="bg-emerald-500 h-2.5 rounded-full transition-all duration-300"
-              :style="{ width: recognizeProgress + '%' }"
-            ></div>
-          </div>
-          <p class="text-xs text-gray-500 mt-1.5">
-            {{ recognizeStatusText }}
-          </p>
-          <!-- 实时识别结果日志 -->
-          <div
-            v-if="recognizeResults.length > 0"
-            ref="logEl"
-            class="mt-3 max-h-48 overflow-y-auto bg-gray-50 rounded border border-gray-100 p-2 space-y-0.5"
-          >
-            <div
-              v-for="(item, idx) in recognizeResults"
-              :key="idx"
-              class="text-xs font-mono leading-5 flex items-center gap-1.5"
-            >
-              <template v-if="item.error">
-                <span class="text-red-500">✗</span>
-                <span class="text-gray-600 truncate">{{ item.filename }}</span>
-                <span class="text-red-400">— 识别失败</span>
-                <span v-if="item.elapsed" class="text-gray-300 ml-auto shrink-0">{{ item.elapsed }}s</span>
-              </template>
-              <template v-else-if="item.species_cn">
-                <span class="text-emerald-500">✓</span>
-                <span class="text-gray-600 truncate">{{ item.filename }}</span>
-                <span class="text-gray-400">—</span>
-                <span class="text-emerald-700 font-medium">{{ item.species_cn }}</span>
-                <span v-if="item.rating != null && item.rating >= 0" class="text-amber-500">{{ '⭐'.repeat(item.rating) }}{{ item.rating === 0 ? '☆' : '' }}</span>
-                <span v-if="item.head_sharp != null" class="text-gray-400">锐度 {{ item.head_sharp }}</span>
-                <span v-if="item.nima_score != null" class="text-gray-400">美学 {{ item.nima_score }}</span>
-                <span v-if="item.elapsed" class="text-gray-300 ml-auto shrink-0">{{ item.elapsed }}s</span>
-              </template>
-              <template v-else>
-                <span class="text-gray-400">○</span>
-                <span class="text-gray-600 truncate">{{ item.filename }}</span>
-                <span class="text-gray-400">— 未检测到鸟类</span>
-                <span v-if="item.elapsed" class="text-gray-300 ml-auto shrink-0">{{ item.elapsed }}s</span>
-              </template>
-            </div>
-          </div>
-        </div>
+      <Spinner v-if="photoStore.loading && photoStore.items.length === 0" />
 
-        <Spinner v-if="photoStore.loading && photoStore.items.length === 0" />
+      <EmptyState
+        v-else-if="!photoStore.loading && photoStore.items.length === 0"
+        title="暂无照片"
+        description="上传照片或扫描本地目录"
+      />
 
-        <EmptyState
-          v-else-if="!photoStore.loading && photoStore.items.length === 0"
-          title="暂无照片"
-          description="上传照片或扫描本地目录"
-        />
-
-        <!-- 网格模式（虚拟滚动，按行渲染） -->
-        <RecycleScroller
-          v-else-if="viewMode === 'grid'"
-          class="h-[70vh]"
-          :items="gridRows"
-          :item-size="gridRowHeight"
-          key-field="rowKey"
-          v-slot="{ item: row }"
-        >
-          <div class="grid gap-2 pb-2" :style="gridStyle">
-            <PhotoCard
-              v-for="photo in row.photos"
-              :key="photo.id"
-              :photo="photo"
-              :selectable="selectMode"
-              :selected="selected.has(photo.id)"
+      <!-- 网格模式（虚拟滚动，按行渲染） -->
+      <RecycleScroller
+        v-else-if="viewMode === 'grid'"
+        class="h-[calc(100vh-160px)]"
+        :items="gridRows"
+        :item-size="gridRowHeight"
+        key-field="rowKey"
+        v-slot="{ item: row }"
+      >
+        <div class="grid gap-3 pb-3" :style="gridStyle">
+          <PhotoCard
+            v-for="photo in row.photos"
+            :key="photo.id"
+            :photo="photo"
+            :selectable="selectMode"
+            :selected="selected.has(photo.id)"
               @click="openPhoto(photo.id)"
               @toggle-select="toggleSelect"
             />
@@ -177,14 +195,14 @@
         <!-- 列表模式 -->
         <RecycleScroller
           v-else
-          class="h-[70vh]"
+          class="h-[calc(100vh-160px)]"
           :items="photoStore.items"
           key-field="id"
           :item-size="58"
           v-slot="{ item: photo }"
         >
           <div
-            class="flex items-center gap-3 px-3 py-2 bg-white rounded-lg hover:bg-gray-50 cursor-pointer border border-gray-100 mb-1"
+            class="flex items-center gap-3 px-3 py-2 card-apple rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.06] cursor-pointer mb-1 transition-colors"
             @click="openPhoto(photo.id)"
           >
             <img
@@ -193,10 +211,10 @@
               loading="lazy"
             />
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium truncate">{{ photo.filename }}</p>
-              <p class="text-xs text-gray-500">{{ photo.species_cn || '未识别' }}</p>
+              <p class="text-[14px] font-medium truncate dark:text-text-on-dark">{{ photo.filename }}</p>
+              <p class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">{{ photo.species_cn || '未识别' }}</p>
             </div>
-            <span class="text-xs text-gray-400">{{ formatDate(photo.exif_datetime || photo.created_at) }}</span>
+            <span class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">{{ formatDate(photo.exif_datetime || photo.created_at) }}</span>
             <StarRating :rating="photo.rating" />
           </div>
         </RecycleScroller>
@@ -206,7 +224,7 @@
           <button
             @click="loadMore"
             :disabled="photoStore.loading"
-            class="px-6 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            class="btn-pill disabled:opacity-50"
           >
             <span v-if="photoStore.loading">加载中…</span>
             <span v-else>加载更多</span>
@@ -214,13 +232,12 @@
         </div>
       </div>
     </div>
-  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { LayoutGrid, List, Cpu, Zap, CheckSquare, Trash2, Square } from 'lucide-vue-next'
+import { LayoutGrid, List, Cpu, Zap, CheckSquare, Trash2, Square, SlidersHorizontal } from 'lucide-vue-next'
 import { usePhotoStore } from '@/stores/photoStore'
 import { useToastStore } from '@/stores/toastStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -247,6 +264,7 @@ const viewMode = ref<'grid' | 'list'>('grid')
 const selected = ref<Set<string>>(new Set())
 const selectMode = ref(false)
 const deleting = ref(false)
+const filterOpen = ref(false)
 
 // 从全局 taskStore 引用识别状态
 const recognizing = computed(() => taskStore.recognizing)
@@ -419,3 +437,21 @@ function formatDate(s: string | undefined) {
   return s.slice(0, 10)
 }
 </script>
+
+<style scoped>
+.filter-slide-enter-active,
+.filter-slide-leave-active {
+  transition: all 0.25s ease;
+  overflow: hidden;
+}
+.filter-slide-enter-from,
+.filter-slide-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+.filter-slide-enter-to,
+.filter-slide-leave-from {
+  max-height: 400px;
+  opacity: 1;
+}
+</style>

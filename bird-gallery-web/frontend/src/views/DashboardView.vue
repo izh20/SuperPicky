@@ -1,11 +1,11 @@
 <template>
-  <div class="max-w-5xl mx-auto">
+  <div class="max-w-5xl mx-auto px-5 py-6">
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-xl font-bold text-gray-800">仪表盘</h1>
+      <h1 class="dark:text-text-on-dark">仪表盘</h1>
       <button
         @click="store.fetchAll()"
         :disabled="store.loading"
-        class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
+        class="flex items-center gap-1.5 text-[14px] text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark disabled:opacity-50"
       >
         <RefreshCw class="w-4 h-4" :class="store.loading ? 'animate-spin' : ''" />
         刷新
@@ -24,9 +24,9 @@
 
     <div class="grid md:grid-cols-2 gap-6">
       <!-- 系统指标 -->
-      <div v-if="store.metrics" class="bg-white rounded-xl p-5 border border-gray-100">
+      <div v-if="store.metrics" class="card-apple dark:bg-[#1c1c1e] rounded-xl p-5">
         <h2 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-          <Cpu class="w-5 h-5 text-primary-600" /> 系统内存
+          <Cpu class="w-5 h-5 text-apple-blue" /> 系统内存
         </h2>
         <div class="space-y-2 text-sm">
           <MemBar label="系统已用" :used="store.metrics.memory.system_used_gb" :total="store.metrics.memory.system_total_gb" color="bg-blue-400" />
@@ -39,9 +39,9 @@
       </div>
 
       <!-- 模型状态 -->
-      <div v-if="store.metrics?.models" class="bg-white rounded-xl p-5 border border-gray-100">
+      <div v-if="store.metrics?.models" class="card-apple dark:bg-[#1c1c1e] rounded-xl p-5">
         <h2 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-          <Layers class="w-5 h-5 text-primary-600" /> AI 模型状态
+          <Layers class="w-5 h-5 text-apple-blue" /> AI 模型状态
         </h2>
         <div class="space-y-3">
           <div
@@ -64,9 +64,9 @@
       </div>
 
       <!-- 管理操作 -->
-      <div class="bg-white rounded-xl p-5 border border-gray-100 md:col-span-2">
+      <div class="card-apple dark:bg-[#1c1c1e] rounded-xl p-5 md:col-span-2">
         <h2 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-          <Settings class="w-5 h-5 text-primary-600" /> 管理操作
+          <Settings class="w-5 h-5 text-apple-blue" /> 管理操作
         </h2>
         <div class="flex flex-wrap gap-3">
           <AdminBtn @click="releaseModels" :loading="releasing" icon="🧹">
@@ -168,10 +168,10 @@ function formatModelTime(iso: string | null) {
 const StatCard = defineComponent({
   props: ['icon', 'label', 'value'],
   setup(p) {
-    return () => h('div', { class: 'bg-white rounded-xl p-4 border border-gray-100 text-center' }, [
+    return () => h('div', { class: 'card-apple dark:bg-[#1c1c1e] rounded-xl p-4 text-center' }, [
       h('div', { class: 'text-2xl mb-1' }, p.icon),
-      h('div', { class: 'text-2xl font-bold text-gray-800' }, p.value),
-      h('div', { class: 'text-xs text-gray-500 mt-1' }, p.label),
+      h('div', { class: 'text-2xl font-bold text-text-primary dark:text-text-on-dark font-display' }, p.value),
+      h('div', { class: 'text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary mt-1' }, p.label),
     ])
   },
 })
@@ -201,7 +201,7 @@ const AdminBtn = defineComponent({
     return () => h('button', {
       onClick: () => emit('click'),
       disabled: p.loading,
-      class: 'flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors',
+      class: 'flex items-center gap-2 px-4 py-2 btn-secondary rounded-lg text-[14px] disabled:opacity-50 transition-colors',
     }, [
       h('span', {}, p.icon),
       slots.default?.(),
