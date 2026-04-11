@@ -111,6 +111,9 @@ const mainNavItems = computed(() => {
   if (authStore.isLoggedIn) {
     items.push({ to: '/upload', label: '上传' })
   }
+  if (authStore.isAdmin) {
+    items.push({ to: '/settings', label: '系统设置' })
+  }
   return items
 })
 

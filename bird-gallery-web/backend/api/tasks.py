@@ -7,6 +7,18 @@ from models.schemas import TaskResponse
 router = APIRouter(tags=["tasks"])
 
 
+@router.get("/tasks/latest/{task_type}", response_model=TaskResponse)
+async def get_latest_task_by_type(task_type: str, db=Depends(get_db)):
+    """获取某类型最新的任务。"""
+    row = db.execute(
+        "SELECT * FROM tasks WHERE type = ? ORDER BY created_at DESC LIMIT 1",
+        (task_type,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "No tasks found")
+    return TaskResponse(**dict(row))
+
+
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
 async def get_task(task_id: str, db=Depends(get_db)):
     """查询异步任务状态与进度。"""

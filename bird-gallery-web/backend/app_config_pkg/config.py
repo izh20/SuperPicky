@@ -155,6 +155,21 @@ def burst_video_dir() -> str:
     return d
 
 
+def exports_dir(task_id: str | None = None) -> str:
+    if task_id:
+        d = os.path.join(get_media_dir(), 'exports', task_id)
+    else:
+        d = os.path.join(get_media_dir(), 'exports')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def watermarks_dir() -> str:
+    d = os.path.join(get_media_dir(), 'watermarks')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def ensure_media_dirs():
     """启动时确保所有必要子目录存在。"""
     get_media_dir()
@@ -164,3 +179,5 @@ def ensure_media_dirs():
     videos_thumbnails_dir()
     thumbnails_dir()
     chunks_dir()
+    exports_dir()
+    watermarks_dir()

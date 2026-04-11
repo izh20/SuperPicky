@@ -21,6 +21,10 @@ return {
             title = LOC "$$$/SuperBirdID/Info/MenuTitle=SuperPicky - Identify Current Photo",
             file = 'LibraryMenuItem.lua',
         },
+        {
+            title = LOC "$$$/SuperBirdID/Info/AutoToneTitle=SuperPicky - Auto Tone + Export",
+            file = 'AutoToneExport.lua',
+        },
     },
 
     VERSION = { major=4, minor=0, revision=4, build=1, },

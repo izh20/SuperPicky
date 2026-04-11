@@ -186,6 +186,7 @@ from api.birds import router as birds_router
 from api.duplicates import router as duplicates_router
 from api.videos import router as videos_router
 from api.bursts import router as bursts_router
+from api.batch_process import router as batch_process_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(photos_router, prefix="/api")
@@ -197,3 +198,4 @@ app.include_router(birds_router, prefix="/api")
 app.include_router(duplicates_router, prefix="/api")
 app.include_router(videos_router, prefix="/api")
 app.include_router(bursts_router, prefix="/api")
+app.include_router(batch_process_router, prefix="/api")

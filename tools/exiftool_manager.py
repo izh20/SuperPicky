@@ -1455,8 +1455,29 @@ class ExifToolManager:
             log(t("logs.restore_not_found", count=stats['not_found']))
         if stats['failed'] > 0:
             log(t("logs.restore_failed_count", count=stats['failed']))
-        
+
         return stats
+
+    def copy_metadata(
+        self,
+        source: str,
+        dest: str,
+        tags: Optional[List[str]] = None,
+    ) -> bool:
+        """Copy EXIF/XMP metadata from source to dest file.
+
+        Args:
+            source: Source file path (e.g. original RAW)
+            dest: Destination file path (e.g. final JPG)
+            tags: Tag copy args, defaults to all tags except thumbnails.
+                  Example: ["-all:all", "-icc_profile:all", "--ThumbnailImage"]
+        """
+        if tags is None:
+            tags = ["-all:all", "-icc_profile:all", "--ThumbnailImage"]
+        args = ["-overwrite_original", "-TagsFromFile", source]
+        args.extend(tags)
+        args.append(dest)
+        return self._send_to_process(args)
 
 
 # 全局实例

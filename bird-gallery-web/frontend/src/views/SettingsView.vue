@@ -27,13 +27,22 @@
             placeholder="/Volumes/ExternalDisk&#10;~/Pictures"
           ></textarea>
         </div>
-        <button
-          @click="saveSysConfig"
-          :disabled="sysConfigSaving"
-          class="btn-primary !text-sm !px-4 !py-2"
-        >
-          {{ sysConfigSaving ? '保存中…' : '保存存储配置' }}
-        </button>
+        <div class="flex items-center gap-3">
+          <button
+            @click="testSysConfig"
+            :disabled="sysConfigTesting"
+            class="btn-secondary !text-sm !px-4 !py-2"
+          >
+            {{ sysConfigTesting ? '验证中…' : '测试/验证' }}
+          </button>
+          <button
+            @click="saveSysConfig"
+            :disabled="sysConfigSaving"
+            class="btn-primary !text-sm !px-4 !py-2"
+          >
+            {{ sysConfigSaving ? '保存中…' : '保存存储配置' }}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -315,6 +324,7 @@ const recalcProgress = ref(0)
 // ── 系统存储配置 ──
 const sysConfigLoading = ref(true)
 const sysConfigSaving = ref(false)
+const sysConfigTesting = ref(false)
 const sysConfig = reactive({ media_dir: '', scan_roots: [] as string[] })
 const scanRootsText = computed({
   get: () => sysConfig.scan_roots.join('\n'),
@@ -358,6 +368,24 @@ async function saveSysConfig() {
     toastStore.error('保存失败: ' + e.message)
   } finally {
     sysConfigSaving.value = false
+  }
+}
+
+async function testSysConfig() {
+  sysConfigTesting.value = true
+  try {
+    const data: any = await client.put('/admin/config', {
+      media_dir: sysConfig.media_dir || undefined,
+      scan_roots: sysConfig.scan_roots.length ? sysConfig.scan_roots : undefined,
+    })
+    // 同步返回的有效配置
+    sysConfig.media_dir = data.media_dir || sysConfig.media_dir
+    sysConfig.scan_roots = data.scan_roots || sysConfig.scan_roots
+    toastStore.success('验证通过：后端已接受该路径')
+  } catch (e: any) {
+    toastStore.error('验证失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    sysConfigTesting.value = false
   }
 }
 

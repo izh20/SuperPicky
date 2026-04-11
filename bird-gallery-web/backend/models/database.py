@@ -185,6 +185,40 @@ CREATE TABLE IF NOT EXISTS users (
     role          TEXT NOT NULL DEFAULT 'user',
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 批处理任务逐张跟踪
+CREATE TABLE IF NOT EXISTS batch_process_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id         TEXT NOT NULL,
+    photo_id        TEXT NOT NULL,
+    phase           TEXT DEFAULT 'pending',
+    denoise_output  TEXT,
+    tone_output     TEXT,
+    final_output    TEXT,
+    error_msg       TEXT,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (photo_id) REFERENCES photos(id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id),
+    UNIQUE(task_id, photo_id)
+);
+
+-- 最终处理成品
+CREATE TABLE IF NOT EXISTS processed_photos (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    photo_id        TEXT NOT NULL,
+    task_id         TEXT NOT NULL,
+    file_path       TEXT NOT NULL,
+    crop_preset     TEXT,
+    watermark_preset TEXT,
+    config_json     TEXT,
+    width           INTEGER,
+    height          INTEGER,
+    file_size       INTEGER,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (photo_id) REFERENCES photos(id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id)
+);
 """
 
 INDEX_SQL = """
@@ -205,6 +239,10 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_duplicate_groups_hash ON duplicate_groups(hash_type);
 CREATE INDEX IF NOT EXISTS idx_upload_sessions_status ON upload_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_upload_sessions_created ON upload_sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_bpi_task_id ON batch_process_items(task_id);
+CREATE INDEX IF NOT EXISTS idx_bpi_photo_id ON batch_process_items(photo_id);
+CREATE INDEX IF NOT EXISTS idx_pp_task_id ON processed_photos(task_id);
+CREATE INDEX IF NOT EXISTS idx_pp_photo_id ON processed_photos(photo_id);
 """
 
 
@@ -240,6 +278,7 @@ def init_db():
             # 迁移：给已有 users 表增加 role 列
             _migrate_add_role_column(conn)
             _migrate_add_keypoints_column(conn)
+            _migrate_add_config_json_column(conn)
             conn.commit()
             _ensure_admin_user(conn)
         finally:
@@ -279,6 +318,14 @@ def _migrate_add_keypoints_column(conn: sqlite3.Connection):
     if "keypoints_json" not in cols:
         conn.execute("ALTER TABLE photo_scores ADD COLUMN keypoints_json TEXT")
         _logger.info("已迁移 photo_scores 表：添加 keypoints_json 列")
+
+
+def _migrate_add_config_json_column(conn: sqlite3.Connection):
+    """迁移：给已有 tasks 表增加 config_json 列（幂等）。"""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    if "config_json" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN config_json TEXT")
+        _logger.info("已迁移 tasks 表：添加 config_json 列")
 
 
 def _ensure_admin_user(conn: sqlite3.Connection):

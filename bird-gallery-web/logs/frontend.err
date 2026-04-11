@@ -1,0 +1,135 @@
+4:16:32 PM [vite] http proxy error: /api/tasks/a054e13c-3d57-460b-a63e-e611aed51383
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+4:16:36 PM [vite] http proxy error: /api/photos?page=1&page_size=60&confidence_min=70
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+4:58:21 PM [vite] http proxy error: /api/tasks/8796c88a-a5db-4461-9e27-6bd2c1a9de03
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+5:05:02 PM [vite] http proxy error: /api/tasks/e4ac1e6a-c541-4904-b399-e014bbc99d1a
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+9:42:18 PM [vite] http proxy error: /api/tasks/79f0564f-3a4f-4e11-8554-b3f8ae7c64a5
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+10:14:59 PM [vite] http proxy error: /api/tasks/63cce6e7-c6de-46e5-8dc7-7f645cfd11b4
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+10:34:57 PM [vite] http proxy error: /api/tasks/aa9a0b28-c491-4127-b0cc-0ed3209c9e15
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:38 PM [vite] http proxy error: /api/bursts/56e57d6a-d715-44b2-9aa9-71cd8750f7fb/video?v=0
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:39 PM [vite] http proxy error: /api/auth/me
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:39 PM [vite] http proxy error: /api/bursts/56e57d6a-d715-44b2-9aa9-71cd8750f7fb
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:41 PM [vite] http proxy error: /api/stats/dashboard
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:41 PM [vite] http proxy error: /api/admin/metrics
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:44 PM [vite] http proxy error: /api/photos?page=1&page_size=60&confidence_min=70
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:46 PM [vite] http proxy error: /api/videos
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:48 PM [vite] http proxy error: /api/bursts?page_size=10000
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:48 PM [vite] http proxy error: /api/bursts/filter-options?confidence_min=70
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:52 PM [vite] http proxy error: /api/birds
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:53 PM [vite] http proxy error: /api/stats/dashboard
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:30:53 PM [vite] http proxy error: /api/admin/metrics
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:32:03 PM [vite] http proxy error: /api/auth/login
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:32:07 PM [vite] http proxy error: /api/auth/login
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:32:14 PM [vite] http proxy error: /api/auth/login
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:32:16 PM [vite] http proxy error: /api/auth/login
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:32:17 PM [vite] http proxy error: /api/auth/login
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:32:26 PM [vite] http proxy error: /api/auth/login
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:32:32 PM [vite] http proxy error: /api/photos?page=1&page_size=60&confidence_min=70
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+7:32:37 PM [vite] http proxy error: /api/auth/login
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+1:39:51 PM [vite] Internal server error: [vue/compiler-sfc] Unexpected token, expected "," (88:13)
+
+/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/src/views/SettingsView.vue
+381|  }
+382|  
+383|          <div class="flex items-center gap-3">
+   |               ^
+384|            <button
+385|              @click="testSysConfig"
+  Plugin: vite:vue
+  File: /Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/src/views/SettingsView.vue:88:13
+  55 |          </div>
+  56 |          <div>
+  57 |            <label class="block text-sm font-medium text-text-secondary dark:text-text-on-dark-secondary mb-1">密码</label>
+     |                                   ^
+  58 |            <input
+  59 |              v-model="newUser.password"
+      at constructor (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:6599:19)
+      at TypeScriptParserMixin.unexpected (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:6619:16)
+      at TypeScriptParserMixin.expect (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:6899:12)
+      at TypeScriptParserMixin.tsParseDelimitedListWorker (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:7906:14)
+      at TypeScriptParserMixin.tsParseDelimitedList (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:7883:25)
+      at TypeScriptParserMixin.tsParseBracketedList (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:7923:25)
+      at TypeScriptParserMixin.tsParseTypeParameters (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:8069:24)
+      at /Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:9792:29
+      at TypeScriptParserMixin.tryParse (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:6907:20)
+1:40:36 PM [vite] Internal server error: [vue/compiler-sfc] Unexpected token, expected "," (88:13)
+
+/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/src/views/SettingsView.vue
+381|  }
+382|  
+383|          <div class="flex items-center gap-3">
+   |               ^
+384|            <button
+385|              @click="testSysConfig"
+  Plugin: vite:vue
+  File: /Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/src/views/SettingsView.vue:88:13
+  55 |          </div>
+  56 |          <div>
+  57 |            <label class="block text-sm font-medium text-text-secondary dark:text-text-on-dark-secondary mb-1">密码</label>
+     |                                   ^
+  58 |            <input
+  59 |              v-model="newUser.password"
+      at constructor (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:6599:19)
+      at TypeScriptParserMixin.unexpected (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:6619:16)
+      at TypeScriptParserMixin.expect (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:6899:12)
+      at TypeScriptParserMixin.tsParseDelimitedListWorker (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:7906:14)
+      at TypeScriptParserMixin.tsParseDelimitedList (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:7883:25)
+      at TypeScriptParserMixin.tsParseBracketedList (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:7923:25)
+      at TypeScriptParserMixin.tsParseTypeParameters (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:8069:24)
+      at /Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:9792:29
+      at TypeScriptParserMixin.tryParse (/Users/zhouheng/claude/SuperPicky/bird-gallery-web/frontend/node_modules/@babel/parser/lib/index.js:6907:20)
