@@ -94,8 +94,8 @@ export const photoAPI = {
       params: { burst_time_threshold: threshold, burst_min_count: minCount },
     }),
 
-  recognizeAll: (): Promise<{ id: string; task_id: string; total: number }> =>
-    client.post('/photos/recognize-all'),
+  recognizeAll: (signal?: AbortSignal): Promise<{ id: string; task_id: string; total: number }> =>
+    client.post('/photos/recognize-all', null, { signal }),
 
   ratingConfig: (): Promise<{
     config: Record<string, number>;

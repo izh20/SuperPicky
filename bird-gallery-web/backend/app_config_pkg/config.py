@@ -170,6 +170,33 @@ def watermarks_dir() -> str:
     return d
 
 
+def photo_edit_dir(photo_id: str | None = None) -> str:
+    if photo_id:
+        d = os.path.join(get_media_dir(), 'photo_edits', photo_id)
+    else:
+        d = os.path.join(get_media_dir(), 'photo_edits')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def photo_edit_versions_dir(photo_id: str) -> str:
+    d = os.path.join(photo_edit_dir(photo_id), 'versions')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def photo_edit_drafts_dir(photo_id: str) -> str:
+    d = os.path.join(photo_edit_dir(photo_id), 'drafts')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def photo_edit_exports_dir(photo_id: str) -> str:
+    d = os.path.join(photo_edit_dir(photo_id), 'exports')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def ensure_media_dirs():
     """启动时确保所有必要子目录存在。"""
     get_media_dir()
@@ -181,3 +208,4 @@ def ensure_media_dirs():
     chunks_dir()
     exports_dir()
     watermarks_dir()
+    photo_edit_dir()

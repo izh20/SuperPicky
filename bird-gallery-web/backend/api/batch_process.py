@@ -24,6 +24,7 @@ from models.batch_schemas import (
     BatchProcessStartResponse,
     BatchProcessResultsResponse,
     BatchProcessResultItem,
+    BatchTonePresetSummary,
 )
 from services.crop_service import (
     get_crop_presets, smart_crop, _parse_detection_box,
@@ -31,6 +32,7 @@ from services.crop_service import (
 from services.watermark_service import (
     get_watermark_presets, apply_watermark_layers,
 )
+from services.photo_edit_service import normalize_params, version_preview_url
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +40,38 @@ router = APIRouter(prefix="/batch-process", tags=["batch-process"])
 
 
 @router.get("/options")
-async def get_options():
+async def get_options(db=Depends(get_db)):
     """Return available presets and parameter ranges."""
+    tone_presets = []
+    preset_rows = db.execute(
+        """
+        SELECT pev.photo_id, p.filename, pev.id AS version_id, pev.version_no,
+               pev.is_current, pev.is_auto_tone, pev.created_at
+        FROM photo_edit_versions pev
+        JOIN photos p ON p.id = pev.photo_id
+        ORDER BY datetime(pev.created_at) DESC, pev.version_no DESC
+        LIMIT 40
+        """
+    ).fetchall()
+    for row in preset_rows:
+        tone_presets.append(BatchTonePresetSummary(
+            photo_id=row["photo_id"],
+            filename=row["filename"],
+            version_id=int(row["version_id"]),
+            version_no=int(row["version_no"]),
+            is_current=bool(row["is_current"]),
+            is_auto_tone=bool(row["is_auto_tone"]),
+            preview_url=version_preview_url(row["photo_id"], int(row["version_id"]), preview_size=800),
+            created_at=row["created_at"],
+        ).model_dump())
+
     return {
         "crop_presets": get_crop_presets(),
         "watermark_presets": get_watermark_presets(),
         "denoise_algorithms": ["DeepPRIME_3", "DeepPRIME_XD3"],
         "auto_tone_tools": ["lightroom", "darktable"],
+        "tone_modes": ["reference_version", "legacy_auto"],
+        "tone_presets": tone_presets,
         "output_formats": ["jpeg", "tiff", "png"],
         "aspect_ratios": ["16:9", "4:3", "3:2", "1:1", "21:9", "9:16", "original"],
         "compositions": ["center", "rule-of-thirds", "tight", "environmental"],
@@ -59,7 +86,36 @@ async def start_batch_process(
 ):
     """Start a batch processing task. Global mutex: only one at a time."""
     task_id = str(uuid.uuid4())
-    config_json = config.model_dump_json()
+    config_payload = config.model_dump()
+
+    if config.auto_tone_enabled and config.tone_mode == "reference_version":
+        if not config.reference_photo_id or not config.reference_version_id:
+            raise HTTPException(422, "请先选择一个单张 RAW 编辑版本模板")
+
+        preset_row = db.execute(
+            """
+            SELECT pev.photo_id, pev.id AS version_id, pev.version_no, pev.params_json,
+                   p.filename
+            FROM photo_edit_versions pev
+            JOIN photos p ON p.id = pev.photo_id
+            WHERE pev.photo_id = ? AND pev.id = ?
+            """,
+            (config.reference_photo_id, config.reference_version_id),
+        ).fetchone()
+        if not preset_row:
+            raise HTTPException(404, "所选调色模板不存在")
+
+        try:
+            tone_params = normalize_params(json.loads(preset_row["params_json"]))
+        except Exception as exc:
+            raise HTTPException(422, "所选调色模板参数无效") from exc
+
+        config_payload["tone_params"] = tone_params
+        config_payload["tone_reference_label"] = (
+            f'{preset_row["filename"]} · V{int(preset_row["version_no"])}'
+        )
+
+    config_json = json.dumps(config_payload, ensure_ascii=False)
 
     # Atomic insert with mutex check
     result = db.execute(
@@ -94,7 +150,7 @@ async def start_batch_process(
     # Launch background task
     from services.batch_process_service import run_batch_process
     background_tasks.add_task(
-        run_batch_process, task_id, config.model_dump(),
+        run_batch_process, task_id, config_payload,
     )
 
     return BatchProcessStartResponse(

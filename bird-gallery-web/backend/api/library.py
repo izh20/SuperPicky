@@ -8,6 +8,7 @@
 import os
 import uuid
 import logging
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -77,9 +78,10 @@ async def scan_library(
         raise HTTPException(404, f"Directory not found: {safe_path}")
 
     task_id = str(uuid.uuid4())
+    config_json = json.dumps({"path": safe_path, "recursive": req.recursive}, ensure_ascii=False)
     db.execute(
-        "INSERT INTO tasks (id, type, status) VALUES (?, 'scan', 'pending')",
-        (task_id,),
+        "INSERT INTO tasks (id, type, status, config_json) VALUES (?, 'scan', 'pending', ?)",
+        (task_id, config_json),
     )
     db.commit()
 

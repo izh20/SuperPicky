@@ -106,6 +106,28 @@ class TaskResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class AdminTaskSummary(BaseModel):
+    id: str
+    type: str
+    status: str
+    progress: int = 0
+    result_json: Optional[str] = None
+    error_msg: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    target_id: Optional[str] = None
+    target_name: Optional[str] = None
+    detail: Optional[str] = None
+    can_cancel: bool = False
+    can_retry: bool = False
+
+
+class AdminTaskListResponse(BaseModel):
+    items: list[AdminTaskSummary] = Field(default_factory=list)
+    running: int = 0
+    queued: int = 0
+
+
 # ── 管理 ──
 
 class ModelStatus(BaseModel):
@@ -123,3 +145,118 @@ class MetricsResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = "0.1.0"
+
+
+class PhotoEditVersionSummary(BaseModel):
+    version_id: int
+    version_no: int
+    is_current: bool = False
+    is_auto_tone: bool = False
+    preview_url: Optional[str] = None
+    engine: Optional[str] = None
+    engine_version: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class PhotoEditCurrentVersion(BaseModel):
+    version_id: int
+    version_no: int
+    preview_url: Optional[str] = None
+    is_auto_tone: bool = False
+    engine: Optional[str] = None
+    engine_version: Optional[str] = None
+
+
+class PhotoEditDraftState(BaseModel):
+    draft_id: int
+    base_version_id: Optional[int] = None
+    params_json: dict = Field(default_factory=dict)
+    params_hash: str
+    render_revision: int = 0
+    render_status: str = "idle"
+    preview_url: Optional[str] = None
+    last_task_id: Optional[str] = None
+    engine: Optional[str] = None
+    engine_version: Optional[str] = None
+
+
+class PhotoEditStateResponse(BaseModel):
+    photo_id: str
+    is_raw: bool = False
+    has_auto_tone_result: bool = False
+    current_version: PhotoEditCurrentVersion
+    current_draft: PhotoEditDraftState
+    versions: list[PhotoEditVersionSummary] = Field(default_factory=list)
+
+
+class PhotoEditAutoToneRequest(BaseModel):
+    engine: str = "internal_v1"
+    base_version_id: Optional[int] = None
+    force_recompute: bool = False
+
+
+class PhotoEditPatchDraftRequest(BaseModel):
+    params: dict = Field(default_factory=dict)
+
+
+class PhotoEditCommitRequest(BaseModel):
+    set_current: bool = True
+
+
+class PhotoEditRenderPreviewRequest(BaseModel):
+    preview_size: int = 1600
+    quality: int = 90
+    force_recompute: bool = False
+
+
+class PhotoEditRenderPreviewResponse(BaseModel):
+    status: str
+    preview_url: Optional[str] = None
+    histogram: Optional[dict] = None
+    task_id: Optional[str] = None
+    render_mode: str
+    render_time_ms: Optional[int] = None
+    render_revision: int
+
+
+class PhotoEditDraftMutationResponse(BaseModel):
+    draft_id: int
+    params_json: dict = Field(default_factory=dict)
+    params_hash: Optional[str] = None
+    render_revision: int
+    draft_updated_at: Optional[datetime] = None
+
+
+class PhotoEditCommitResponse(BaseModel):
+    version_id: int
+    version_no: int
+    version_preview_url: Optional[str] = None
+    current_version_changed: bool = True
+    draft_rebased: bool = True
+
+
+class PhotoEditDiscardResponse(BaseModel):
+    draft_id: int
+    base_version_id: Optional[int] = None
+    params_json: dict = Field(default_factory=dict)
+    render_revision: int
+    preview_url: Optional[str] = None
+
+
+class PhotoEditActivateResponse(BaseModel):
+    current_version_id: int
+    current_version_preview_url: Optional[str] = None
+    draft_id: int
+    draft_reset: bool = True
+
+
+class PhotoEditExportRequest(BaseModel):
+    format: str = "tiff"
+    quality: int = 95
+    write_xmp: bool = True
+
+
+class PhotoEditExportQueuedResponse(BaseModel):
+    task_id: str
+    status: str
+

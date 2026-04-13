@@ -66,6 +66,71 @@ export interface PhotoDetail extends Photo {
   score: PhotoScore
 }
 
+export interface PhotoEditParams {
+  exposure: number
+  contrast: number
+  highlights: number
+  shadows: number
+  whites: number
+  blacks: number
+  temperature: number
+  tint: number
+  vibrance: number
+  saturation: number
+}
+
+export interface PhotoEditVersionSummary {
+  version_id: number
+  version_no: number
+  is_current: boolean
+  is_auto_tone: boolean
+  preview_url?: string | null
+  engine?: string | null
+  engine_version?: string | null
+  created_at?: string | null
+}
+
+export interface PhotoEditCurrentVersion {
+  version_id: number
+  version_no: number
+  preview_url?: string | null
+  is_auto_tone: boolean
+  engine?: string | null
+  engine_version?: string | null
+}
+
+export interface PhotoEditDraftState {
+  draft_id: number
+  base_version_id?: number | null
+  params_json: PhotoEditParams
+  params_hash: string
+  render_revision: number
+  render_status: string
+  preview_url?: string | null
+  last_task_id?: string | null
+  engine?: string | null
+  engine_version?: string | null
+}
+
+export interface PhotoEditState {
+  photo_id: string
+  is_raw: boolean
+  has_auto_tone_result: boolean
+  current_version: PhotoEditCurrentVersion
+  current_draft: PhotoEditDraftState
+  versions: PhotoEditVersionSummary[]
+}
+
+export interface PhotoEditRenderPreviewResponse {
+  status: string
+  preview_url?: string | null
+  histogram?: Record<string, number[]> | null
+  task_id?: string | null
+  render_mode: string
+  render_time_ms?: number | null
+  render_revision: number
+}
+
 // 视频
 export interface Video {
   id: string
@@ -127,6 +192,20 @@ export interface Task {
   error_msg: string | null
   created_at: string
   updated_at: string | null
+}
+
+export interface AdminTaskSummary extends Task {
+  target_id?: string | null
+  target_name?: string | null
+  detail?: string | null
+  can_cancel: boolean
+  can_retry: boolean
+}
+
+export interface AdminTaskListResponse {
+  items: AdminTaskSummary[]
+  running: number
+  queued: number
 }
 
 // 系统
@@ -249,6 +328,9 @@ export interface BatchProcessConfig {
   denoise_luminance: number
   denoise_chrominance: number
   auto_tone_enabled: boolean
+  tone_mode: 'reference_version' | 'legacy_auto'
+  reference_photo_id?: string | null
+  reference_version_id?: number | null
   auto_tone_tool: 'lightroom' | 'darktable'
   crop_preset: string
   crop_config?: CropConfig
@@ -264,6 +346,17 @@ export interface BatchProcessStartResponse {
   total_photos: number
   filtered_photos: number
   estimated_time_minutes: number
+}
+
+export interface BatchTonePresetSummary {
+  photo_id: string
+  filename: string
+  version_id: number
+  version_no: number
+  is_current: boolean
+  is_auto_tone: boolean
+  preview_url?: string | null
+  created_at?: string | null
 }
 
 export interface BatchProcessResultItem {
@@ -287,6 +380,8 @@ export interface BatchProcessOptions {
   watermark_presets: Record<string, { label: string }>
   denoise_algorithms: string[]
   auto_tone_tools: string[]
+  tone_modes: Array<'reference_version' | 'legacy_auto'>
+  tone_presets: BatchTonePresetSummary[]
   output_formats: string[]
   aspect_ratios: string[]
   compositions: string[]

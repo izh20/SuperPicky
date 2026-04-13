@@ -193,7 +193,7 @@ async def complete_upload(upload_id: str, db=Depends(get_db)):
     result = {"upload_id": upload_id, "file_hash": file_hash, "file_size": file_size}
 
     if file_type == "video":
-        from services.video_processor import get_video_info
+        from services.video_processor import get_video_info, generate_thumbnail as gen_video_thumb
         info = await run_in_threadpool(get_video_info, dest_path)
         db.execute(
             """INSERT INTO videos (id, original_path, filename, duration, fps, frame_count, status)
@@ -204,6 +204,9 @@ async def complete_upload(upload_id: str, db=Depends(get_db)):
              info.get("frame_count") if info else None),
         )
         db.commit()
+        # 生成视频缩略图
+        thumb_path = os.path.join(app_config.videos_thumbnails_dir(), f"{upload_id}.jpg")
+        await run_in_threadpool(gen_video_thumb, dest_path, thumb_path)
         result["video_id"] = upload_id
     else:
         from services.thumbnail_generator import generate_thumbnail, get_image_dimensions

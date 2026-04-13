@@ -219,6 +219,49 @@ CREATE TABLE IF NOT EXISTS processed_photos (
     FOREIGN KEY (photo_id) REFERENCES photos(id),
     FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
+
+CREATE TABLE IF NOT EXISTS photo_edit_versions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    photo_id        TEXT NOT NULL,
+    source_type     TEXT NOT NULL DEFAULT 'raw',
+    version_no      INTEGER NOT NULL,
+    is_current      INTEGER NOT NULL DEFAULT 0,
+    is_auto_tone    INTEGER NOT NULL DEFAULT 0,
+    base_version_id INTEGER,
+    params_json     TEXT NOT NULL,
+    params_hash     TEXT NOT NULL,
+    render_status   TEXT NOT NULL DEFAULT 'ready',
+    preview_path    TEXT,
+    export_path     TEXT,
+    histogram_json  TEXT,
+    engine          TEXT,
+    engine_version  TEXT,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (photo_id) REFERENCES photos(id),
+    FOREIGN KEY (base_version_id) REFERENCES photo_edit_versions(id),
+    UNIQUE(photo_id, version_no)
+);
+
+CREATE TABLE IF NOT EXISTS photo_edit_drafts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    photo_id        TEXT NOT NULL UNIQUE,
+    base_version_id INTEGER,
+    params_json     TEXT NOT NULL,
+    params_hash     TEXT NOT NULL,
+    render_revision INTEGER NOT NULL DEFAULT 0,
+    preview_path    TEXT,
+    histogram_json  TEXT,
+    render_status   TEXT NOT NULL DEFAULT 'idle',
+    last_task_id    TEXT,
+    engine          TEXT,
+    engine_version  TEXT,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (photo_id) REFERENCES photos(id),
+    FOREIGN KEY (base_version_id) REFERENCES photo_edit_versions(id),
+    FOREIGN KEY (last_task_id) REFERENCES tasks(id)
+);
 """
 
 INDEX_SQL = """
@@ -243,6 +286,11 @@ CREATE INDEX IF NOT EXISTS idx_bpi_task_id ON batch_process_items(task_id);
 CREATE INDEX IF NOT EXISTS idx_bpi_photo_id ON batch_process_items(photo_id);
 CREATE INDEX IF NOT EXISTS idx_pp_task_id ON processed_photos(task_id);
 CREATE INDEX IF NOT EXISTS idx_pp_photo_id ON processed_photos(photo_id);
+CREATE INDEX IF NOT EXISTS idx_photo_edit_versions_photo_id ON photo_edit_versions(photo_id);
+CREATE INDEX IF NOT EXISTS idx_photo_edit_drafts_photo_id ON photo_edit_drafts(photo_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_edit_current
+ON photo_edit_versions(photo_id, is_current)
+WHERE is_current = 1;
 """
 
 
@@ -257,11 +305,12 @@ def get_db_connection() -> sqlite3.Connection:
     BackgroundTasks 中应直接调用此函数获取独立连接。
     """
     _ensure_db_dir()
-    conn = sqlite3.connect(_DB_PATH, timeout=30, check_same_thread=False)
+    conn = sqlite3.connect(_DB_PATH, timeout=60, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=60000")
     return conn
 
 

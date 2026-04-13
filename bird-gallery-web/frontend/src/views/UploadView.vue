@@ -1,26 +1,26 @@
 <template>
-  <div class="max-w-3xl mx-auto px-5 py-6">
-    <h1 class="dark:text-text-on-dark mb-6">上传照片/视频</h1>
+  <div class="max-w-3xl mx-auto px-3 sm:px-5 py-4 sm:py-6">
+    <h1 class="dark:text-text-on-dark mb-4 sm:mb-6 text-lg sm:text-xl">上传照片/视频</h1>
 
     <!-- 拖拽区域 -->
     <div
       ref="dropZone"
-      class="border-2 border-dashed rounded-xl p-12 text-center transition-colors"
+      class="border-2 border-dashed rounded-xl p-6 sm:p-12 text-center transition-colors"
       :class="dragging ? 'border-apple-blue bg-apple-blue/5' : 'border-black/10 dark:border-white/10 bg-surface-light dark:bg-surface-card-dark hover:border-black/20 dark:hover:border-white/20'"
       @dragover.prevent="dragging = true"
       @dragleave="dragging = false"
       @drop.prevent="onDrop"
       @click="fileInput?.click()"
     >
-      <Upload class="w-12 h-12 mx-auto mb-3 text-gray-400" />
-      <p class="text-gray-600 font-medium">拖拽文件到此处，或点击选择</p>
+      <Upload class="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 text-gray-400" />
+      <p class="text-gray-600 font-medium text-sm sm:text-base">拖拽文件到此处，或点击选择</p>
       <p class="text-xs text-gray-400 mt-1">
         支持：JPG / PNG / HEIC / RAW（CR2/NEF/ARW/DNG/RAF/ORF/RW2）/ MP4 / MOV / AVI / MKV
       </p>
       <p class="text-xs text-gray-400">单文件最大 10GB，自动分块上传</p>
       <button
         type="button"
-        class="mt-3 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded hover:bg-gray-100"
+        class="mt-3 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 bg-white dark:bg-white/10 border border-gray-200 dark:border-white/20 rounded hover:bg-gray-100 dark:hover:bg-white/20"
         @click.stop="folderInput?.click()"
       >
         选择文件夹上传
@@ -31,7 +31,7 @@
       ref="fileInput"
       type="file"
       multiple
-      accept=".jpg,.jpeg,.png,.heif,.heic,.cr2,.cr3,.nef,.arw,.dng,.raf,.orf,.rw2,.mp4,.mov,.avi,.mkv"
+      accept="image/*,video/*,.cr2,.cr3,.nef,.arw,.dng,.raf,.orf,.rw2"
       class="hidden"
       @change="onFileSelect"
     />
@@ -46,25 +46,36 @@
       @change="onFolderSelect"
     />
 
+    <!-- 文件加载进度 -->
+    <div v-if="uploadStore.addingFiles" class="mt-4 sm:mt-6 flex items-center gap-3 p-4 rounded-xl bg-apple-blue/5 border border-apple-blue/20">
+      <Loader class="w-5 h-5 text-apple-blue animate-spin shrink-0" />
+      <span class="text-sm text-gray-700 dark:text-gray-200">{{ uploadStore.addingProgress }}</span>
+    </div>
+
     <!-- 文件队列（虚拟滚动，支持数万文件不卡顿） -->
-    <div v-if="uploadStore.queue.length > 0" class="mt-6 flex flex-col gap-2">
-      <div class="flex items-center justify-between mb-2">
-        <span class="font-semibold text-gray-700">待上传文件 ({{ uploadStore.queue.length }})</span>
-        <div class="flex gap-2">
+    <div v-if="uploadStore.queue.length > 0" class="mt-4 sm:mt-6 flex flex-col gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <span class="font-semibold text-gray-700 text-sm sm:text-base">待上传文件 ({{ uploadStore.queue.length }})</span>
+        <div class="flex gap-2 flex-wrap">
           <button
             v-if="hasCompleted"
             @click="uploadStore.clearDone()"
             class="text-xs text-gray-500 hover:text-gray-700"
           >清除已完成</button>
           <button
+            v-if="!uploadStore.uploading && uploadStore.queue.length > 0"
+            @click="clearAll"
+            class="text-xs text-red-500 hover:text-red-700"
+          >清空队列</button>
+          <button
             @click="startUpload"
-            :disabled="uploading"
+            :disabled="uploadStore.uploading"
             class="px-4 py-1.5 bg-primary-600 text-white text-sm rounded hover:bg-primary-700 disabled:opacity-50 transition-colors"
           >
-            {{ uploading ? '上传中…' : hasRetryable ? '重新上传' : '开始上传' }}
+            {{ uploadStore.uploading ? '上传中…' : hasRetryable ? '重新上传' : '开始上传' }}
           </button>
           <button
-            v-if="uploading"
+            v-if="uploadStore.uploading"
             @click="abortUpload"
             class="px-4 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors flex items-center gap-1"
           >
@@ -74,13 +85,13 @@
       </div>
 
       <!-- 总进度概览 -->
-      <div v-if="uploading" class="bg-white border border-primary-200 rounded-lg px-4 py-3 shadow-sm">
-        <div class="flex items-center justify-between mb-1.5">
+      <div v-if="hasAnyProgress" class="bg-white border border-primary-200 rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-1 mb-1.5">
           <div class="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Upload class="w-4 h-4 text-primary-500" />
             <span>总进度：{{ overallStats.done }}/{{ overallStats.total }} 个文件</span>
           </div>
-          <div class="flex items-center gap-3 text-sm">
+          <div class="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm">
             <span class="font-mono text-primary-600">{{ overallStats.percent }}%</span>
             <span class="text-gray-500">{{ formatSpeed(overallStats.speed) }}</span>
             <span v-if="overallStats.eta" class="text-gray-400">剩余 {{ overallStats.eta }}</span>
@@ -160,7 +171,6 @@ const toast = useToastStore()
 const fileInput = ref<HTMLInputElement | null>(null)
 const folderInput = ref<HTMLInputElement | null>(null)
 const dragging = ref(false)
-const uploading = ref(false)
 
 
 const ALLOWED_EXTENSIONS = new Set([
@@ -170,7 +180,8 @@ const ALLOWED_EXTENSIONS = new Set([
 ])
 
 const hasCompleted = computed(() => uploadStore.queue.some(u => u.status === 'done'))
-const hasRetryable = computed(() => !uploading.value && uploadStore.queue.some(u => u.status === 'error'))
+const hasRetryable = computed(() => !uploadStore.uploading && uploadStore.queue.some(u => u.status === 'error'))
+const hasAnyProgress = computed(() => uploadStore.queue.some(u => u.status === 'uploading' || u.status === 'done' || u.status === 'error'))
 
 const overallStats = computed(() => {
   const q = uploadStore.queue
@@ -203,17 +214,23 @@ function onDrop(e: DragEvent) {
 }
 
 function onFileSelect(e: Event) {
-  const selected = Array.from((e.target as HTMLInputElement).files ?? [])
+  const input = e.target as HTMLInputElement
+  const selected = Array.from(input.files ?? [])
+  input.value = '' // 允许重复选择同一文件
   addFiles(selected)
 }
 
 function onFolderSelect(e: Event) {
-  const selected = Array.from((e.target as HTMLInputElement).files ?? [])
+  const input = e.target as HTMLInputElement
+  const selected = Array.from(input.files ?? [])
+  input.value = ''
   if (!selected.length) return
 
-  // 过滤出支持的文件类型，跳过 .DS_Store 等系统文件
+  // 过滤出支持的文件类型，跳过 .DS_Store / ._ 等系统文件
   const valid = selected.filter(f => {
-    const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
+    const name = f.name
+    if (name.startsWith('._') || name.startsWith('.')) return false
+    const ext = name.split('.').pop()?.toLowerCase() ?? ''
     return ALLOWED_EXTENSIONS.has(ext)
   })
 
@@ -231,9 +248,11 @@ function onFolderSelect(e: Event) {
 }
 
 function addFiles(newFiles: File[]) {
-  // 过滤不支持的扩展名
+  // 过滤不支持的扩展名和 macOS 隐藏文件（._ 资源分叉）
   const valid = newFiles.filter(f => {
-    const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
+    const name = f.name
+    if (name.startsWith('._') || name.startsWith('.')) return false
+    const ext = name.split('.').pop()?.toLowerCase() ?? ''
     return ALLOWED_EXTENSIONS.has(ext)
   })
   if (valid.length === 0) return
@@ -242,7 +261,6 @@ function addFiles(newFiles: File[]) {
 }
 
 async function startUpload() {
-  uploading.value = true
   try {
     // 先把被终止/失败的项重置为 queued，使其可以重新上传
     uploadStore.retryFailed()
@@ -255,14 +273,18 @@ async function startUpload() {
     }
   } catch (e: any) {
     toast.error(e.message)
-  } finally {
-    uploading.value = false
   }
 }
 
 function abortUpload() {
   if (confirm('确认终止所有上传？已完成的文件不受影响。')) {
     uploadStore.abortAll()
+  }
+}
+
+function clearAll() {
+  if (confirm('确认清空上传队列？')) {
+    uploadStore.clearQueue()
   }
 }
 

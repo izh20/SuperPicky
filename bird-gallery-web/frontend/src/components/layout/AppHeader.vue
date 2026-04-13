@@ -103,30 +103,27 @@ const mobileMenuOpen = ref(false)
 const mainNavItems = computed(() => {
   const items = [
     { to: '/gallery', label: '照片库' },
+    { to: '/identify', label: '识鸟' },
     { to: '/videos', label: '视频' },
     { to: '/bursts', label: '连拍' },
     { to: '/birds', label: '鸟种目录' },
     { to: '/dashboard', label: '仪表盘' },
+    { to: '/duplicates', label: '重复照片' },
   ]
   if (authStore.isLoggedIn) {
     items.push({ to: '/upload', label: '上传' })
   }
   if (authStore.isAdmin) {
     items.push({ to: '/settings', label: '系统设置' })
+    items.push({ to: '/logs', label: '系统日志' })
   }
   return items
 })
 
 const allNavItems = computed(() => {
-  const items = [
-    ...mainNavItems.value,
-    { to: '/duplicates', label: '重复照片' },
-  ]
+  const items = [...mainNavItems.value]
   if (authStore.isLoggedIn) {
     items.push({ to: '/batch-process', label: '批量处理' })
-  }
-  if (authStore.isAdmin) {
-    items.push({ to: '/settings', label: '系统设置' })
   }
   return items
 })

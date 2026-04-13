@@ -1,8 +1,11 @@
 <template>
-  <div class="max-w-5xl mx-auto px-5 py-6">
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-xl font-semibold text-text-primary dark:text-text-on-dark font-display">视频</h1>
-      <div class="flex items-center gap-2">
+  <div class="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5 sm:mb-8">
+      <div>
+        <h1 class="text-2xl sm:text-[28px] font-semibold text-text-primary dark:text-text-on-dark font-display" style="line-height: 1.14; letter-spacing: 0.196px;">视频</h1>
+        <p v-if="videoStore.list.length" class="text-[14px] text-text-tertiary dark:text-text-on-dark-tertiary mt-1" style="letter-spacing: -0.224px;">{{ videoStore.list.length }} 个视频</p>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
         <!-- 选择模式 -->
         <button
           @click="toggleSelectMode"
@@ -34,17 +37,19 @@
         </template>
         <RouterLink
           to="/upload"
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-apple-blue text-white text-sm rounded-lg hover:bg-apple-blue/90 transition-colors"
+          class="flex items-center gap-1.5 px-4 py-1.5 bg-text-primary dark:bg-white text-white dark:text-black text-[14px] rounded-full hover:opacity-90 transition-all shadow-sm"
+          style="letter-spacing: -0.224px;"
         >
-          <Upload class="w-4 h-4" /> 上传视频
+          <Upload class="w-4 h-4" /> 上传
         </RouterLink>
         <button
           @click="batchAnalyze"
           :disabled="batchAnalyzing"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors"
+          class="flex items-center gap-1.5 px-4 py-1.5 text-[14px] rounded-full transition-all shadow-sm"
           :class="batchAnalyzing
             ? 'bg-apple-blue/10 text-apple-blue cursor-wait'
-            : 'bg-apple-blue text-white hover:bg-apple-blue/90'"
+            : 'bg-apple-blue text-white hover:brightness-110'"
+          style="letter-spacing: -0.224px;"
         >
           <Scan class="w-4 h-4" :class="{ 'animate-spin': batchAnalyzing }" />
           {{ batchAnalyzing ? `分析中 ${batchProgress}%` : '一键分析全部' }}
@@ -59,43 +64,57 @@
       description="上传视频文件后可在此查看和分析"
       :icon="Video"
     />
-    <div v-else class="grid gap-4" style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
+    <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
       <div
         v-for="v in videoStore.list"
         :key="v.id"
-        class="card-apple dark:bg-surface-card-dark overflow-hidden hover:shadow-apple transition-shadow cursor-pointer relative"
+        class="video-card group relative cursor-pointer rounded-xl overflow-hidden bg-white dark:bg-[#1c1c1e]"
         @click="onCardClick(v.id)"
       >
         <!-- 选择复选框 -->
         <div
           v-if="selectMode"
-          class="absolute top-2 left-2 z-10"
+          class="absolute top-3 left-3 z-20"
           @click.stop="toggleSelect(v.id)"
         >
           <div
-            class="w-5 h-5 rounded border-2 flex items-center justify-center transition-colors"
-            :class="selected.has(v.id) ? 'bg-apple-blue border-apple-blue' : 'bg-white/80 dark:bg-surface-card-dark/80 border-black/10 dark:border-white/20'"
+            class="w-6 h-6 rounded-full flex items-center justify-center transition-all duration-200"
+            :class="selected.has(v.id) ? 'bg-apple-blue shadow-lg scale-110' : 'bg-black/30 backdrop-blur-sm hover:bg-black/50'"
           >
-            <Check v-if="selected.has(v.id)" class="w-3 h-3 text-white" />
+            <svg v-if="selected.has(v.id)" class="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
           </div>
         </div>
         <!-- 封面 -->
-        <div class="aspect-video bg-gray-900 flex items-center justify-center text-gray-500 overflow-hidden relative">
+        <div class="aspect-video bg-black flex items-center justify-center overflow-hidden relative">
           <img
             :src="videoAPI.thumbnailUrl(v.id)"
-            class="w-full h-full object-cover"
+            class="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
             loading="lazy"
             @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'"
           />
-          <Video class="w-10 h-10 opacity-30 absolute" />
+          <Video class="w-10 h-10 opacity-20 absolute pointer-events-none" />
+          <!-- 播放按钮 overlay -->
+          <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            <div class="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+              <svg class="w-5 h-5 text-text-primary ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </div>
+          </div>
+          <!-- 时长标签 -->
+          <span v-if="v.duration_seconds" class="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[11px] text-white font-medium backdrop-blur-sm">
+            {{ formatDuration(v.duration_seconds) }}
+          </span>
         </div>
-        <div class="p-3">
-          <p class="font-medium text-sm truncate dark:text-text-on-dark">{{ v.filename }}</p>
-          <div class="flex items-center gap-2 mt-1 text-xs text-text-tertiary dark:text-text-on-dark-tertiary">
-            <span v-if="v.duration_seconds">{{ formatDuration(v.duration_seconds) }}</span>
+        <!-- 信息区 -->
+        <div class="px-3.5 py-3">
+          <p class="text-[14px] font-semibold truncate text-text-primary dark:text-text-on-dark" style="letter-spacing: -0.224px;">{{ v.filename }}</p>
+          <div class="flex items-center gap-2 mt-1 text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary" style="letter-spacing: -0.12px;">
             <span v-if="v.width && v.height">{{ v.width }}×{{ v.height }}</span>
             <span
-              class="ml-auto px-1.5 py-0.5 rounded text-white text-xs"
+              class="ml-auto px-2 py-0.5 rounded-full text-white text-[11px] font-medium"
               :class="statusClass(v.status)"
             >{{ statusLabel(v.status) }}</span>
           </div>
@@ -108,10 +127,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Upload, Video, CheckSquare, Trash2, Check, Scan } from 'lucide-vue-next'
+import { Upload, Video, CheckSquare, Trash2, Scan } from 'lucide-vue-next'
 import { useVideoStore } from '@/stores/videoStore'
 import { useToastStore } from '@/stores/toastStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { videoAPI } from '@/api/videos'
 import { taskAPI } from '@/api/admin'
 import Spinner from '@/components/common/Spinner.vue'
@@ -121,6 +141,7 @@ const router = useRouter()
 const videoStore = useVideoStore()
 const toast = useToastStore()
 const authStore = useAuthStore()
+const taskStore = useTaskStore()
 const selectMode = ref(false)
 const selected = ref<Set<string>>(new Set())
 const deleting = ref(false)
@@ -180,10 +201,11 @@ async function batchAnalyze() {
   if (!confirm('确认分析全部视频？这可能需要较长时间。')) return
   batchAnalyzing.value = true
   batchProgress.value = 0
+  taskStore.setActiveTask('正在分析全部视频', 0)
   try {
     const res = await videoAPI.batchAnalyze()
     if (!res.task_id) {
-      toast.success(res.message ?? '没有可分析的视频')
+      toast.success('没有可分析的视频')
       return
     }
     toast.success(`开始分析 ${res.total} 个视频`)
@@ -193,6 +215,7 @@ async function batchAnalyze() {
         try {
           const task = await taskAPI.get(res.task_id)
           batchProgress.value = task.progress ?? 0
+          taskStore.setActiveTask(`正在分析视频 (${res.total}个)`, task.progress ?? 0)
           if (task.status === 'done') {
             await videoStore.fetchList()
             toast.success('全部视频分析完成')
@@ -211,6 +234,7 @@ async function batchAnalyze() {
     toast.error(e.message)
   } finally {
     batchAnalyzing.value = false
+    taskStore.clearActiveTask()
     await videoStore.fetchList()
   }
 }
@@ -226,6 +250,17 @@ function statusLabel(s: string) {
 }
 
 function statusClass(s: string) {
-  return { done: 'bg-green-500', analyzing: 'bg-blue-500', processing: 'bg-blue-500', error: 'bg-red-500', transcoding: 'bg-yellow-500', ready: 'bg-gray-500', uploaded: 'bg-gray-400' }[s] ?? 'bg-gray-400'
+  return { done: 'bg-green-500', analyzing: 'bg-apple-blue', processing: 'bg-apple-blue', error: 'bg-red-500', transcoding: 'bg-amber-500', ready: 'bg-text-tertiary', uploaded: 'bg-text-tertiary' }[s] ?? 'bg-text-tertiary'
 }
 </script>
+
+<style scoped>
+.video-card {
+  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              box-shadow 0.3s ease;
+}
+.video-card:hover {
+  transform: translateY(-3px);
+  box-shadow: rgba(0, 0, 0, 0.12) 0px 8px 30px 0px;
+}
+</style>

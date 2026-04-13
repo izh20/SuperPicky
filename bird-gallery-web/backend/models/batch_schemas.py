@@ -75,6 +75,10 @@ class BatchProcessConfig(BaseModel):
 
     # --- 调色 ---
     auto_tone_enabled: bool = True
+    tone_mode: Literal["reference_version", "legacy_auto"] = "reference_version"
+    reference_photo_id: Optional[str] = None
+    reference_version_id: Optional[int] = None
+    tone_params: Optional[dict] = None
     auto_tone_tool: Literal["lightroom", "darktable"] = "lightroom"
 
     # --- 裁切 ---
@@ -96,6 +100,17 @@ class BatchProcessStartResponse(BaseModel):
     total_photos: int
     filtered_photos: int
     estimated_time_minutes: int
+
+
+class BatchTonePresetSummary(BaseModel):
+    photo_id: str
+    filename: str
+    version_id: int
+    version_no: int
+    is_current: bool
+    is_auto_tone: bool
+    preview_url: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 class BatchProcessResultItem(BaseModel):

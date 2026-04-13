@@ -37,7 +37,7 @@ if not _JWT_SECRET:
 JWT_EXPIRES = 7 * 24 * 3600  # 7 天
 
 # 不需要认证的路径前缀
-AUTH_EXEMPT_PATHS = {"/api/auth/login"}
+AUTH_EXEMPT_PATHS = {"/api/auth/login", "/api/identify"}
 
 
 # ── 简易 JWT（纯标准库，无额外依赖）──

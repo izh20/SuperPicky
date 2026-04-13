@@ -1,11 +1,19 @@
 <template>
-  <div class="flex gap-6 max-w-7xl mx-auto px-5 py-6">
-    <!-- 筛选侧边栏 -->
-    <aside class="w-56 flex-shrink-0 space-y-4">
+  <div class="flex flex-col lg:flex-row gap-4 lg:gap-6 max-w-7xl mx-auto px-3 sm:px-5 py-4 sm:py-6">
+    <!-- 筛选侧边栏：移动端可折叠 -->
+    <aside class="w-full lg:w-56 lg:flex-shrink-0 space-y-4">
       <div class="card-apple dark:bg-surface-card-dark p-4 space-y-3">
-        <h3 class="text-sm font-semibold text-text-primary dark:text-text-on-dark flex items-center gap-1.5">
-          <Filter class="w-4 h-4" /> 筛选
-        </h3>
+        <button
+          class="w-full flex items-center justify-between lg:pointer-events-none"
+          @click="filterOpen = !filterOpen"
+        >
+          <h3 class="text-sm font-semibold text-text-primary dark:text-text-on-dark flex items-center gap-1.5">
+            <Filter class="w-4 h-4" /> 筛选
+          </h3>
+          <ChevronDown class="w-4 h-4 text-text-tertiary lg:hidden transition-transform" :class="{ 'rotate-180': filterOpen }" />
+        </button>
+
+        <div :class="filterOpen ? 'block' : 'hidden lg:block'" class="space-y-3">
 
         <!-- 鸟种 -->
         <div>
@@ -99,17 +107,18 @@
         >
           重置筛选
         </button>
+        </div>
       </div>
     </aside>
 
     <!-- 主内容区 -->
     <div class="flex-1 min-w-0">
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-xl font-semibold text-text-primary dark:text-text-on-dark font-display">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4 sm:mb-6">
+        <h1 class="text-lg sm:text-xl font-semibold text-text-primary dark:text-text-on-dark font-display">
           连拍组
           <span class="text-sm font-normal text-text-tertiary dark:text-text-on-dark-tertiary ml-2">{{ burstStore.list.length }} 组</span>
         </h1>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <!-- 选择模式 -->
           <button
             @click="toggleSelectMode"
@@ -167,7 +176,7 @@
       <!-- 检测连拍对话框 -->
       <div v-if="showDetectDialog" class="mb-4 card-apple dark:bg-surface-card-dark p-4">
         <h3 class="text-sm font-semibold text-text-primary dark:text-text-on-dark mb-3">连拍检测设置</h3>
-        <div class="flex items-end gap-4">
+        <div class="flex flex-wrap items-end gap-3 sm:gap-4">
           <div>
             <label class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary mb-1 block">时间阈值（秒）</label>
             <input
@@ -206,7 +215,7 @@
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2">
             <Zap class="w-4 h-4 text-emerald-500 animate-pulse" />
-            <span class="text-sm font-medium text-text-primary dark:text-text-on-dark">正在识别鸟类并评分…</span>
+            <span class="text-sm font-medium text-text-primary dark:text-text-on-dark">{{ taskStore.recognizeTitle }}</span>
           </div>
           <div class="flex items-center gap-3">
             <span class="text-sm font-mono text-emerald-500">{{ taskStore.recognizeProgress }}%</span>
@@ -248,8 +257,9 @@
               <span class="text-text-tertiary dark:text-text-on-dark-tertiary">—</span>
               <span class="text-emerald-600 dark:text-emerald-400 font-medium">{{ item.species_cn }}</span>
               <span v-if="item.rating != null && item.rating >= 0" class="text-amber-500">{{ '⭐'.repeat(item.rating) }}{{ item.rating === 0 ? '☆' : '' }}</span>
-              <span v-if="item.head_sharp != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">锐度 {{ item.head_sharp }}</span>
-              <span v-if="item.nima_score != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">美学 {{ item.nima_score }}</span>
+              <span v-if="item.head_sharp != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">锐度 {{ item.head_sharp.toFixed(2) }}</span>
+              <span v-if="item.nima_score != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">美学 {{ item.nima_score.toFixed(2) }}</span>
+              <span v-if="item.elapsed" class="text-text-tertiary dark:text-text-on-dark-tertiary ml-auto shrink-0">{{ item.elapsed }}s</span>
             </template>
             <template v-else>
               <span class="text-text-tertiary dark:text-text-on-dark-tertiary">○</span>
@@ -267,7 +277,7 @@
         description="点击「检测连拍」按钮自动分组时间相近的照片"
         :icon="Layers"
       />
-      <div v-else class="grid gap-4" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+      <div v-else class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
         <div
           v-for="b in burstStore.list"
           :key="b.id"
@@ -312,7 +322,7 @@
 
 <script setup lang="ts">
 import { onMounted, computed, watch, nextTick, ref, reactive } from 'vue'
-import { Zap, Layers, Cpu, Square, Filter, CheckSquare, Check, Trash2 } from 'lucide-vue-next'
+import { Zap, Layers, Cpu, Square, Filter, CheckSquare, Check, Trash2, ChevronDown } from 'lucide-vue-next'
 import { useBurstStore } from '@/stores/burstStore'
 import { useToastStore } from '@/stores/toastStore'
 import { useTaskStore } from '@/stores/taskStore'
@@ -328,6 +338,7 @@ const toast = useToastStore()
 const taskStore = useTaskStore()
 const authStore = useAuthStore()
 const detecting = ref(false)
+const filterOpen = ref(false)
 const logEl = ref<HTMLElement | null>(null)
 const showDetectDialog = ref(false)
 const detectThreshold = ref(2.0)

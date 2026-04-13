@@ -1,38 +1,74 @@
 <template>
-  <div class="flex flex-col h-[calc(100vh-48px)] overflow-hidden">
+  <div class="flex flex-col h-[calc(100vh-48px)] overflow-hidden bg-surface-light dark:bg-surface-dark">
     <!-- 工具栏 -->
-    <div class="flex items-center gap-3 px-5 py-2.5 bg-white/80 dark:bg-surface-card-dark/80 backdrop-blur-sm border-b border-black/5 dark:border-white/10 shrink-0">
-      <span class="text-[14px] text-text-tertiary dark:text-text-on-dark-tertiary">
-        共 <strong class="text-text-primary dark:text-text-on-dark">{{ photoStore.total }}</strong> 张
-      </span>
+    <div class="bg-white/90 dark:bg-[#1c1c1e]/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] shrink-0">
+      <!-- 第一行：核心操作 -->
+      <div class="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-2.5 sm:py-3">
+        <span class="text-[13px] sm:text-[14px] text-text-tertiary dark:text-text-on-dark-tertiary shrink-0" style="letter-spacing: -0.224px;">
+          共 <strong class="text-text-primary dark:text-text-on-dark font-semibold">{{ photoStore.total }}</strong> 张
+        </span>
 
-      <!-- 筛选切换 -->
-      <button
-        @click="filterOpen = !filterOpen"
-        class="flex items-center gap-1.5 px-3 py-1.5 text-[14px] rounded-lg transition-all"
-        :class="filterOpen
-          ? 'bg-apple-blue/10 text-apple-blue dark:bg-apple-link-dark/15 dark:text-apple-link-dark'
-          : 'text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark hover:bg-black/5 dark:hover:bg-white/10'"
-      >
-        <SlidersHorizontal class="w-4 h-4" />
-        筛选
-      </button>
+        <!-- 筛选切换 -->
+        <button
+          @click="filterOpen = !filterOpen"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-[13px] sm:text-[14px] rounded-full transition-all shrink-0"
+          :class="filterOpen
+            ? 'bg-apple-blue text-white shadow-sm'
+            : 'text-text-secondary dark:text-text-on-dark-secondary hover:bg-black/[0.04] dark:hover:bg-white/[0.08]'"
+          style="letter-spacing: -0.224px;"
+        >
+          <SlidersHorizontal class="w-3.5 h-3.5" />
+          <span class="hidden xs:inline">筛选</span>
+        </button>
 
-      <div class="flex-1"></div>
+        <div class="flex-1 min-w-0"></div>
 
-      <!-- 选择模式 -->
-      <button
-        @click="toggleSelectMode"
-        class="flex items-center gap-1.5 px-3 py-1.5 text-[14px] rounded-lg transition-all"
-        :class="selectMode
-          ? 'bg-apple-blue/10 text-apple-blue'
-          : 'text-text-tertiary dark:text-text-on-dark-tertiary hover:bg-black/5 dark:hover:bg-white/10'"
-      >
-        <CheckSquare class="w-4 h-4" />
-        {{ selectMode ? '退出选择' : '选择' }}
-      </button>
+        <!-- 选择模式 -->
+        <button
+          @click="toggleSelectMode"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-[13px] sm:text-[14px] rounded-full transition-all shrink-0"
+          :class="selectMode
+            ? 'bg-apple-blue text-white shadow-sm'
+            : 'text-text-secondary dark:text-text-on-dark-secondary hover:bg-black/[0.04] dark:hover:bg-white/[0.08]'"
+          style="letter-spacing: -0.224px;"
+        >
+          <CheckSquare class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">{{ selectMode ? '退出' : '选择' }}</span>
+        </button>
 
-      <template v-if="selectMode">
+        <!-- 一键识别 -->
+        <button
+          @click="recognizeAll"
+          :disabled="recognizing || recognizeSubmitting"
+          class="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-white text-[13px] sm:text-[14px] rounded-full transition-all shrink-0 shadow-sm"
+          :class="(recognizing || recognizeSubmitting) ? 'bg-apple-blue/70 animate-pulse' : 'bg-apple-blue hover:brightness-110 active:brightness-95'"
+          style="letter-spacing: -0.224px;"
+        >
+          <Zap class="w-4 h-4" />
+          <span v-if="recognizeSubmitting">提交中</span>
+          <span v-else-if="recognizing">{{ recognizeProgress }}%</span>
+          <span v-else>一键识别</span>
+        </button>
+
+        <!-- 视图切换 -->
+        <div class="flex bg-black/[0.04] dark:bg-white/[0.08] rounded-full p-0.5 shrink-0">
+          <button
+            v-for="v in ['grid', 'list']"
+            :key="v"
+            @click="viewMode = v as 'grid' | 'list'"
+            class="px-2 py-1.5 rounded-full transition-all duration-200"
+            :class="viewMode === v
+              ? 'bg-white dark:bg-white/20 text-text-primary dark:text-text-on-dark shadow-sm'
+              : 'text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark'"
+          >
+            <LayoutGrid v-if="v === 'grid'" class="w-4 h-4" />
+            <List v-else class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <!-- 第二行：选择模式操作 -->
+      <div v-if="selectMode" class="flex items-center gap-2 px-3 sm:px-6 pb-2.5 flex-wrap">
         <button
           @click="selectAll"
           class="text-[12px] text-apple-link-light dark:text-apple-link-dark hover:underline"
@@ -44,52 +80,24 @@
           v-if="selected.size > 0 && authStore.isAdmin"
           @click="batchDelete"
           :disabled="deleting"
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-[14px] rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+          class="flex items-center gap-1 px-2.5 py-1 bg-red-600 text-white text-[13px] rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
-          <Trash2 class="w-4 h-4" />
+          <Trash2 class="w-3.5 h-3.5" />
           {{ deleting ? '删除中…' : `删除 (${selected.size})` }}
         </button>
-      </template>
-
-      <!-- 一键识别 -->
-      <button
-        @click="recognizeAll"
-        :disabled="recognizing"
-        class="btn-primary !text-[14px] !px-3 !py-1.5 flex items-center gap-1.5"
-      >
-        <Zap class="w-4 h-4" />
-        <span v-if="recognizing">识别中 ({{ recognizeProgress }}%)…</span>
-        <span v-else>一键识别</span>
-      </button>
-
-      <button
-        v-if="selected.size > 0 && !selectMode"
-        @click="batchRecognize"
-        class="btn-primary !text-[14px] !px-3 !py-1.5 flex items-center gap-1.5"
-      >
-        <Cpu class="w-4 h-4" />识别选中 ({{ selected.size }})
-      </button>
-
-      <!-- 视图切换 -->
-      <div class="flex bg-black/5 dark:bg-white/10 rounded-lg overflow-hidden">
         <button
-          v-for="v in ['grid', 'list']"
-          :key="v"
-          @click="viewMode = v as 'grid' | 'list'"
-          class="px-2.5 py-1.5 text-sm transition-all"
-          :class="viewMode === v
-            ? 'bg-white dark:bg-white/20 text-text-primary dark:text-text-on-dark shadow-sm'
-            : 'text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark'"
+          v-if="selected.size > 0"
+          @click="batchRecognize"
+          class="btn-primary !text-[13px] !px-2.5 !py-1 flex items-center gap-1"
         >
-          <LayoutGrid v-if="v === 'grid'" class="w-4 h-4" />
-          <List v-else class="w-4 h-4" />
+          <Cpu class="w-3.5 h-3.5" />识别选中 ({{ selected.size }})
         </button>
       </div>
     </div>
 
     <!-- 可折叠筛选面板 -->
     <Transition name="filter-slide">
-      <div v-if="filterOpen" class="bg-white dark:bg-surface-card-dark border-b border-black/5 dark:border-white/10 shrink-0">
+      <div v-if="filterOpen" class="bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] shrink-0">
         <FilterPanel
           :model-value="photoStore.filters"
           @update="onFilterUpdate"
@@ -99,13 +107,13 @@
     </Transition>
 
     <!-- 照片网格 / 列表 -->
-    <div ref="scrollEl" class="flex-1 overflow-y-auto px-5 py-4">
+    <div ref="scrollEl" class="flex-1 flex flex-col overflow-hidden px-3 sm:px-6">
       <!-- 识别进度条 -->
-      <div v-if="recognizing" class="mb-4 card-apple p-4 dark:text-text-on-dark">
+      <div v-if="recognizing" class="mb-3 mt-3 shrink-0 rounded-xl bg-white dark:bg-[#1c1c1e] p-4 sm:p-5 shadow-sm dark:text-text-on-dark">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2">
             <Zap class="w-4 h-4 text-emerald-500 animate-pulse" />
-            <span class="text-[14px] font-medium">正在识别鸟类并评分…</span>
+            <span class="text-[14px] font-medium">{{ recognizeTitle }}</span>
           </div>
           <div class="flex items-center gap-3">
             <span class="text-[14px] font-mono text-emerald-500">{{ recognizeProgress }}%</span>
@@ -150,6 +158,8 @@
               <span class="text-text-tertiary dark:text-text-on-dark-tertiary">—</span>
               <span class="text-emerald-600 dark:text-emerald-400 font-medium">{{ item.species_cn }}</span>
               <span v-if="item.rating != null && item.rating >= 0" class="text-amber-500">{{ '⭐'.repeat(item.rating) }}{{ item.rating === 0 ? '☆' : '' }}</span>
+              <span v-if="item.head_sharp != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">锐度 {{ item.head_sharp.toFixed(2) }}</span>
+              <span v-if="item.nima_score != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">美学 {{ item.nima_score.toFixed(2) }}</span>
               <span v-if="item.elapsed" class="text-text-tertiary dark:text-text-on-dark-tertiary ml-auto shrink-0">{{ item.elapsed }}s</span>
             </template>
             <template v-else>
@@ -162,7 +172,7 @@
         </div>
       </div>
 
-      <Spinner v-if="photoStore.loading && photoStore.items.length === 0" />
+      <Spinner v-if="photoStore.loading && photoStore.items.length === 0" class="py-20" />
 
       <EmptyState
         v-else-if="!photoStore.loading && photoStore.items.length === 0"
@@ -173,13 +183,14 @@
       <!-- 网格模式（虚拟滚动，按行渲染） -->
       <RecycleScroller
         v-else-if="viewMode === 'grid'"
-        class="h-[calc(100vh-160px)]"
+        class="flex-1 pt-3 pb-4"
         :items="gridRows"
         :item-size="gridRowHeight"
         key-field="rowKey"
         v-slot="{ item: row }"
+        @scroll.native="onScroll"
       >
-        <div class="grid gap-3 pb-3" :style="gridStyle">
+        <div class="grid gap-3 sm:gap-4 pb-3" :style="gridStyle">
           <PhotoCard
             v-for="photo in row.photos"
             :key="photo.id"
@@ -195,14 +206,15 @@
         <!-- 列表模式 -->
         <RecycleScroller
           v-else
-          class="h-[calc(100vh-160px)]"
+          class="flex-1 pt-3 pb-4"
           :items="photoStore.items"
           key-field="id"
           :item-size="58"
           v-slot="{ item: photo }"
+          @scroll.native="onScroll"
         >
           <div
-            class="flex items-center gap-3 px-3 py-2 card-apple rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.06] cursor-pointer mb-1 transition-colors"
+            class="flex items-center gap-3 px-3 sm:px-4 py-2.5 rounded-xl bg-white dark:bg-[#1c1c1e] hover:bg-black/[0.02] dark:hover:bg-white/[0.04] cursor-pointer mb-1 transition-colors"
             @click="openPhoto(photo.id)"
           >
             <img
@@ -219,16 +231,9 @@
           </div>
         </RecycleScroller>
 
-        <!-- 加载更多 -->
-        <div v-if="hasMore" class="flex justify-center mt-4">
-          <button
-            @click="loadMore"
-            :disabled="photoStore.loading"
-            class="btn-pill disabled:opacity-50"
-          >
-            <span v-if="photoStore.loading">加载中…</span>
-            <span v-else>加载更多</span>
-          </button>
+        <!-- 加载指示 -->
+        <div v-if="photoStore.loading && photoStore.items.length > 0" class="flex justify-center py-4 shrink-0">
+          <Spinner />
         </div>
       </div>
     </div>
@@ -269,6 +274,7 @@ const filterOpen = ref(false)
 // 从全局 taskStore 引用识别状态
 const recognizing = computed(() => taskStore.recognizing)
 const recognizeProgress = computed(() => taskStore.recognizeProgress)
+const recognizeTitle = computed(() => taskStore.recognizeTitle)
 const recognizeStatusText = computed(() => taskStore.recognizeStatusText)
 const recognizeResults = computed(() => taskStore.recognizeResults)
 
@@ -282,12 +288,12 @@ watch(recognizeResults, () => {
 }, { deep: true })
 
 const gridStyle = computed(() => ({
-  gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
 }))
 
 // 网格虚拟滚动：将照片分成行
-const gridColCount = 6  // 与 minmax(160px, 1fr) 在常见宽度下的列数近似
-const gridRowHeight = 178 // 160px(aspect-square) + 8px gap + 10px padding
+const gridColCount = 5  // 与 minmax(180px, 1fr) 在常见宽度下的列数近似
+const gridRowHeight = 160 // 180px * 0.75 (4:3 ratio) + 12px gap
 
 const gridRows = computed(() => {
   const rows: { rowKey: string; photos: typeof photoStore.items }[] = []
@@ -313,6 +319,7 @@ onMounted(async () => {
   await photoStore.fetchPhotos(true)
   // 恢复识别进度轮询（如果之前在其他页面时任务仍在运行）
   taskStore.resumeIfActive()
+  await taskStore.resumeLatestRecognizeAll()
 })
 
 function onFilterUpdate(key: string, val: any) {
@@ -328,6 +335,15 @@ function onReset() {
 async function loadMore() {
   photoStore.nextPage()
   await photoStore.fetchPhotos(false)
+}
+
+function onScroll(e: Event) {
+  const el = e.target as HTMLElement
+  if (!el || !hasMore.value || photoStore.loading) return
+  // 距底部 300px 时自动加载
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) {
+    loadMore()
+  }
 }
 
 function openPhoto(id: string) {
@@ -400,16 +416,22 @@ async function batchRecognize() {
   }
 }
 
+const recognizeSubmitting = ref(false)
+
 async function recognizeAll() {
-  if (taskStore.recognizing) return  // 已有任务运行中
+  if (taskStore.recognizing || recognizeSubmitting.value) return
+  recognizeSubmitting.value = true
+  toastStore.info('正在提交识别任务…')
+  const controller = new AbortController()
+  const submitTimeout = window.setTimeout(() => controller.abort(), 8000)
   try {
-    const res = await photoAPI.recognizeAll()
+    const res = await photoAPI.recognizeAll(controller.signal)
     if (res.total === 0) {
       toastStore.info('所有照片已识别，无需重复操作')
       return
     }
     const taskId = res.id ?? res.task_id
-    toastStore.info(`已提交识别任务（${res.total} 张待识别）`)
+    toastStore.success(`已提交识别任务（${res.total} 张待识别）`)
     taskStore.startTracking(taskId, res.total)
     // 后台轮询由 taskStore 管理，这里监听完成
     const check = setInterval(() => {
@@ -422,7 +444,16 @@ async function recognizeAll() {
       }
     }, 2000)
   } catch (e: any) {
-    toastStore.error(e.message)
+    const recovered = await taskStore.resumeLatestRecognizeAll()
+    if (recovered) {
+      toastStore.info('已恢复正在运行的识别任务')
+      return
+    }
+    const message = controller.signal.aborted ? '提交超时，请稍后重试' : e.message
+    toastStore.error(message)
+  } finally {
+    window.clearTimeout(submitTimeout)
+    recognizeSubmitting.value = false
   }
 }
 

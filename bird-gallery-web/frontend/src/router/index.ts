@@ -16,6 +16,11 @@ const routes = [
     meta: { title: '照片库' },
   },
   {
+    path: '/identify',
+    component: () => import('@/views/IdentifyView.vue'),
+    meta: { title: '拍照识鸟' },
+  },
+  {
     path: '/photos/:id',
     component: () => import('@/views/PhotoDetailView.vue'),
     meta: { title: '照片详情' },
@@ -68,12 +73,17 @@ const routes = [
   {
     path: '/dashboard',
     component: () => import('@/views/DashboardView.vue'),
-    meta: { title: '仪表盘' },
+    meta: { title: '仪表盘', requiresAuth: true, requiresAdmin: true },
   },
   {
     path: '/batch-process',
     component: () => import('@/views/BatchProcessView.vue'),
     meta: { title: '批量处理', requiresAuth: true },
+  },
+  {
+    path: '/logs',
+    component: () => import('@/views/LogsView.vue'),
+    meta: { title: '系统日志', requiresAuth: true, requiresAdmin: true },
   },
 ]
 

@@ -125,6 +125,11 @@ def run_batch_process(task_id: str, config_dict: dict):
     denoise_luminance = config_dict.get("denoise_luminance", 40)
     denoise_chrominance = config_dict.get("denoise_chrominance", 50)
     auto_tone_enabled = config_dict.get("auto_tone_enabled", True)
+    tone_mode = config_dict.get("tone_mode", "reference_version")
+    reference_photo_id = config_dict.get("reference_photo_id")
+    reference_version_id = config_dict.get("reference_version_id")
+    tone_params = config_dict.get("tone_params")
+    tone_reference_label = config_dict.get("tone_reference_label")
     auto_tone_tool = config_dict.get("auto_tone_tool", "lightroom")
     crop_preset = config_dict.get("crop_preset", "4k_wallpaper")
     crop_config = config_dict.get("crop_config")
@@ -133,6 +138,13 @@ def run_batch_process(task_id: str, config_dict: dict):
     output_format = config_dict.get("output_format", "jpeg")
     output_quality = config_dict.get("output_quality", 95)
     output_dir = config_dict.get("output_dir", "")
+
+    reference_tone_params = None
+    if auto_tone_enabled and tone_mode == 'reference_version':
+        from services.photo_edit_service import normalize_params
+
+        if isinstance(tone_params, dict):
+            reference_tone_params = normalize_params(tone_params)
 
     # Resolve crop settings
     if crop_preset != "custom" and crop_preset in CROP_PRESETS:
@@ -315,11 +327,69 @@ def run_batch_process(task_id: str, config_dict: dict):
             _update_progress(db, task_id, 45, {
                 "current_phase": "tone",
                 "total": total,
-                "message": "Waiting for Lightroom auto-tone processing...",
+                "message": (
+                    f"Applying saved edit template: {tone_reference_label}"
+                    if tone_mode == 'reference_version'
+                    else "Waiting for Lightroom auto-tone processing..."
+                ),
                 "phase_progress": {"filter": 100, "denoise": 100, "tone": 0, "crop": 0},
             })
 
-            if auto_tone_tool == "darktable":
+            if tone_mode == 'reference_version':
+                if reference_tone_params is None:
+                    raise ValueError(
+                        'reference tone params missing '
+                        f'(photo_id={reference_photo_id}, version_id={reference_version_id})'
+                    )
+
+                from services.raw_develop_service import render_export_file
+
+                for i, photo in enumerate(filtered_photos):
+                    if _check_cancelled(db, task_id):
+                        return
+
+                    pid = photo["photo_id"]
+                    bpi = db.execute(
+                        "SELECT denoise_output FROM batch_process_items "
+                        "WHERE task_id = ? AND photo_id = ?",
+                        (task_id, pid),
+                    ).fetchone()
+                    input_file = (
+                        bpi["denoise_output"]
+                        if bpi and bpi["denoise_output"]
+                        else photo["original_path"]
+                    )
+                    output_file = os.path.join(
+                        toned_dir, Path(photo["filename"]).stem + ".tiff"
+                    )
+
+                    render_export_file(
+                        input_file,
+                        reference_tone_params,
+                        output_file,
+                        'tiff',
+                        quality=95,
+                    )
+                    db.execute(
+                        "UPDATE batch_process_items SET phase = 'tone', "
+                        "tone_output = ?, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE task_id = ? AND photo_id = ?",
+                        (output_file, task_id, pid),
+                    )
+                    db.commit()
+
+                    progress = 45 + int((i + 1) / total * 15)
+                    _update_progress(db, task_id, progress, {
+                        "current_phase": "tone",
+                        "current_file": photo["filename"],
+                        "total": total,
+                        "message": tone_reference_label or 'Applying saved edit template',
+                        "phase_progress": {
+                            "filter": 100, "denoise": 100,
+                            "tone": int((i + 1) / total * 100), "crop": 0,
+                        },
+                    })
+            elif auto_tone_tool == "darktable":
                 # darktable-cli fallback
                 for i, photo in enumerate(filtered_photos):
                     if _check_cancelled(db, task_id):

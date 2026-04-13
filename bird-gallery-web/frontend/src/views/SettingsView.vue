@@ -1,6 +1,6 @@
 <template>
-  <div class="max-w-3xl mx-auto py-6 px-5 space-y-8">
-    <h1 class="text-xl font-semibold text-text-primary dark:text-text-on-dark font-display">系统设置</h1>
+  <div class="max-w-3xl mx-auto py-4 sm:py-6 px-3 sm:px-5 space-y-6 sm:space-y-8">
+    <h1 class="text-lg sm:text-xl font-semibold text-text-primary dark:text-text-on-dark font-display">系统设置</h1>
 
     <!-- 存储路径配置 -->
     <section class="card-apple dark:bg-surface-card-dark p-5">
@@ -51,25 +51,25 @@
       <h2 class="text-base font-semibold text-text-primary dark:text-text-on-dark mb-4">用户管理</h2>
 
       <!-- 创建用户 -->
-      <form @submit.prevent="createUser" class="flex flex-wrap items-end gap-3 mb-5">
-        <div>
+      <form @submit.prevent="createUser" class="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap items-end gap-3 mb-5">
+        <div class="sm:col-span-1">
           <label class="block text-sm font-medium text-text-secondary dark:text-text-on-dark-secondary mb-1">用户名</label>
           <input
             v-model="newUser.username"
             type="text"
             required
-            class="bg-surface-light dark:bg-white/10 border-0 rounded-lg px-3 py-2 text-sm dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40 w-40"
+            class="bg-surface-light dark:bg-white/10 border-0 rounded-lg px-3 py-2 text-sm dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40 w-full lg:w-40"
             placeholder="用户名"
           />
         </div>
-        <div>
+        <div class="sm:col-span-1">
           <label class="block text-sm font-medium text-text-secondary dark:text-text-on-dark-secondary mb-1">密码</label>
           <input
             v-model="newUser.password"
             type="password"
             required
             minlength="4"
-            class="bg-surface-light dark:bg-white/10 border-0 rounded-lg px-3 py-2 text-sm dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40 w-40"
+            class="bg-surface-light dark:bg-white/10 border-0 rounded-lg px-3 py-2 text-sm dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40 w-full lg:w-40"
             placeholder="密码"
           />
         </div>
@@ -77,7 +77,7 @@
           <label class="block text-sm font-medium text-text-secondary dark:text-text-on-dark-secondary mb-1">角色</label>
           <select
             v-model="newUser.role"
-            class="bg-surface-light dark:bg-white/10 border-0 rounded-lg px-3 py-2 text-sm dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40"
+            class="bg-surface-light dark:bg-white/10 border-0 rounded-lg px-3 py-2 text-sm dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40 w-full lg:w-auto"
           >
             <option value="user">普通用户</option>
             <option value="admin">管理员</option>
@@ -94,7 +94,31 @@
 
       <!-- 用户列表 -->
       <div v-if="usersLoading" class="text-sm text-text-tertiary dark:text-text-on-dark-tertiary">加载中…</div>
-      <table v-else-if="users.length" class="w-full text-sm">
+      <!-- 移动端卡片布局 -->
+      <div v-else-if="users.length" class="sm:hidden space-y-2">
+        <div v-for="u in users" :key="u.id" class="flex items-center justify-between p-3 bg-surface-light dark:bg-white/5 rounded-lg">
+          <div>
+            <p class="text-sm font-medium text-text-primary dark:text-text-on-dark">{{ u.username }}</p>
+            <div class="flex items-center gap-2 mt-0.5">
+              <span
+                class="px-2 py-0.5 rounded-full text-xs font-medium"
+                :class="u.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'"
+              >
+                {{ u.role === 'admin' ? '管理员' : '普通用户' }}
+              </span>
+              <span class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary">{{ u.created_at?.slice(0, 10) }}</span>
+            </div>
+          </div>
+          <button
+            v-if="u.username !== authStore.username"
+            @click="deleteUser(u)"
+            class="text-xs text-red-500 hover:text-red-700 shrink-0"
+          >删除</button>
+          <span v-else class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary shrink-0">当前用户</span>
+        </div>
+      </div>
+      <!-- 桌面端表格 -->
+      <table v-else-if="users.length" class="hidden sm:table w-full text-sm">
         <thead>
           <tr class="border-b border-black/5 dark:border-white/10">
             <th class="text-left py-2 text-text-secondary dark:text-text-on-dark-secondary font-medium">用户名</th>
@@ -227,7 +251,7 @@
     </section>
 
     <!-- 操作按钮 -->
-    <section class="flex items-center gap-3">
+    <section class="flex flex-wrap items-center gap-3">
       <button
         @click="saveConfig"
         :disabled="!dirty || saving"

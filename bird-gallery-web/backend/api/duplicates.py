@@ -8,7 +8,7 @@
 import uuid
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from models.database import get_db
 from services.duplicate_detector import find_duplicates
 from api.photos import _delete_photo_files
@@ -20,10 +20,27 @@ router = APIRouter(tags=["duplicates"])
 
 
 @router.post("/photos/find-duplicates")
-async def detect_duplicates(db=Depends(get_db)):
-    """查找重复/相似照片（返回去重组列表）。"""
-    groups = find_duplicates(db)
-    return {"groups": groups, "total_groups": len(groups)}
+async def detect_duplicates(background_tasks: BackgroundTasks, db=Depends(get_db)):
+    """触发重复/相似照片检测（异步后台任务）。
+
+    返回 task id。前端可通过 tasks 接口查询状态或结果。
+    """
+    # 如果已有正在运行的重复检测任务，返回该任务 id
+    existing = db.execute(
+        "SELECT id, progress FROM tasks WHERE type = 'find_duplicates' AND status = 'running'"
+    ).fetchone()
+    if existing:
+        return {"id": existing["id"], "task_id": existing["id"]}
+
+    task_id = str(uuid.uuid4())
+    db.execute("INSERT INTO tasks (id, type, status) VALUES (?, 'find_duplicates', 'pending')", (task_id,))
+    db.commit()
+
+    # 启动后台任务（在独立线程中运行）
+    from services.duplicate_detector import run_find_duplicates_task
+    background_tasks.add_task(run_find_duplicates_task, task_id)
+
+    return {"id": task_id, "task_id": task_id}
 
 
 @router.get("/photos/groups/{group_id}")

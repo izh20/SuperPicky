@@ -218,9 +218,15 @@ async def batch_analyze_videos(
         return {"task_id": None, "total": 0, "message": "没有可分析的视频"}
 
     task_id = str(uuid.uuid4())
+    config_json = json.dumps({
+        "strategy": strategy,
+        "interval": interval,
+        "total": len(video_ids),
+        "video_ids": video_ids,
+    })
     db.execute(
-        "INSERT INTO tasks (id, type, status) VALUES (?, 'batch-analyze', 'pending')",
-        (task_id,),
+        "INSERT INTO tasks (id, type, status, config_json) VALUES (?, 'batch-analyze', 'pending', ?)",
+        (task_id, config_json),
     )
     db.commit()
 
@@ -278,12 +284,18 @@ async def analyze_video(
 
     # 防止重复分析
     if row["status"] in ("analyzing", "transcoding"):
-        raise HTTPException(409, "Video is already being analyzed")
+        raise HTTPException(409, "该视频正在分析中，请等待完成")
 
     task_id = str(uuid.uuid4())
+    config_json = json.dumps({
+        "video_id": row["id"],
+        "filename": row["filename"],
+        "strategy": strategy,
+        "interval": interval,
+    })
     db.execute(
-        "INSERT INTO tasks (id, type, status) VALUES (?, 'analyze', 'pending')",
-        (task_id,),
+        "INSERT INTO tasks (id, type, status, config_json) VALUES (?, 'analyze', 'pending', ?)",
+        (task_id, config_json),
     )
     db.commit()
 
@@ -294,12 +306,22 @@ async def analyze_video(
 def _analyze_task(task_id: str, video_id: str, strategy: str, interval: int):
     """后台视频分析任务。"""
     db = get_db_connection()
+
+    def _is_cancelled() -> bool:
+        row = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return bool(row and row["status"] == "cancelled")
+
     try:
         db.execute(
             "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (task_id,),
         )
         video = db.execute("SELECT * FROM videos WHERE id = ?", (video_id,)).fetchone()
+
+        if _is_cancelled():
+            db.execute("UPDATE videos SET status = 'ready', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (video_id,))
+            db.commit()
+            return
 
         # 1. 转码（如果需要）
         db.execute(
@@ -336,6 +358,11 @@ def _analyze_task(task_id: str, video_id: str, strategy: str, interval: int):
         )
         db.commit()
 
+        if _is_cancelled():
+            db.execute("UPDATE videos SET status = 'ready', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (video_id,))
+            db.commit()
+            return
+
         vid_frames_dir = app_config.frames_dir(video_id)
         frames = extract_frames(transcoded_path, vid_frames_dir, strategy, interval)
 
@@ -343,6 +370,11 @@ def _analyze_task(task_id: str, video_id: str, strategy: str, interval: int):
         total_frames = len(frames)
         from main import inference_thread_lock
         for i, frame in enumerate(frames):
+            if _is_cancelled():
+                logger.info("Analyze task %s cancelled at frame %d/%d", task_id, i, total_frames)
+                db.execute("UPDATE videos SET status = 'ready', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (video_id,))
+                db.commit()
+                return
             try:
                 from birdid import identify_bird
                 with inference_thread_lock:
@@ -502,6 +534,11 @@ def _aggregate_bird_segments(db, video_id: str):
 def _batch_analyze_task(task_id: str, video_ids: list[str], strategy: str, interval: int):
     """批量视频分析任务：逐个分析所有视频。"""
     db = get_db_connection()
+
+    def _is_cancelled() -> bool:
+        row = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return bool(row and row["status"] == "cancelled")
+
     try:
         db.execute(
             "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -515,11 +552,22 @@ def _batch_analyze_task(task_id: str, video_ids: list[str], strategy: str, inter
         results = []
 
         for i, vid in enumerate(video_ids):
+            if _is_cancelled():
+                logger.info("Batch analyze task %s cancelled at %d/%d", task_id, i, total)
+                break
+
             sub_task_id = str(uuid.uuid4())
             try:
+                video_row = db.execute("SELECT filename FROM videos WHERE id = ?", (vid,)).fetchone()
+                config_json = json.dumps({
+                    "video_id": vid,
+                    "filename": video_row["filename"] if video_row else None,
+                    "strategy": strategy,
+                    "interval": interval,
+                })
                 db.execute(
-                    "INSERT INTO tasks (id, type, status) VALUES (?, 'analyze', 'pending')",
-                    (sub_task_id,),
+                    "INSERT INTO tasks (id, type, status, config_json) VALUES (?, 'analyze', 'pending', ?)",
+                    (sub_task_id, config_json),
                 )
                 db.commit()
                 _analyze_task(sub_task_id, vid, strategy, interval)
@@ -537,12 +585,13 @@ def _batch_analyze_task(task_id: str, video_ids: list[str], strategy: str, inter
             )
             db.commit()
 
-        db.execute(
-            "UPDATE tasks SET status = 'done', progress = 100, "
-            "error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (json.dumps({"completed": completed, "failed": failed, "total": total}), task_id),
-        )
-        db.commit()
+        if not _is_cancelled():
+            db.execute(
+                "UPDATE tasks SET status = 'done', progress = 100, "
+                "error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (json.dumps({"completed": completed, "failed": failed, "total": total}), task_id),
+            )
+            db.commit()
 
     except Exception as e:
         logger.error("Batch analyze task %s failed: %s", task_id, e)

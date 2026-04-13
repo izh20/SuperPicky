@@ -18,6 +18,7 @@ import json
 import tempfile
 import subprocess
 import time
+import sqlite3
 from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query, BackgroundTasks
@@ -43,6 +44,34 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["photos"])
 
+_DB_LOCK_RETRIES = 8
+_DB_LOCK_DELAY = 0.5
+
+
+def _is_db_locked_error(exc: Exception) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and "database is locked" in str(exc).lower()
+
+
+def _db_execute(db, sql: str, params=()):
+    for attempt in range(_DB_LOCK_RETRIES):
+        try:
+            return db.execute(sql, params)
+        except Exception as exc:
+            if not _is_db_locked_error(exc) or attempt == _DB_LOCK_RETRIES - 1:
+                raise
+            time.sleep(_DB_LOCK_DELAY * (attempt + 1))
+
+
+def _db_commit(db):
+    for attempt in range(_DB_LOCK_RETRIES):
+        try:
+            db.commit()
+            return
+        except Exception as exc:
+            if not _is_db_locked_error(exc) or attempt == _DB_LOCK_RETRIES - 1:
+                raise
+            time.sleep(_DB_LOCK_DELAY * (attempt + 1))
+
 # ── 常量 ──
 
 # 白名单
@@ -51,11 +80,65 @@ _PHOTO_EXTENSIONS = {
     '.cr2', '.cr3', '.nef', '.arw', '.dng', '.raf', '.orf', '.rw2',
 }
 
+_RAW_PREVIEW_EXTENSIONS = {
+    '.cr2', '.cr3', '.nef', '.arw', '.dng', '.raf', '.orf', '.rw2',
+}
+
 _MAX_SINGLE_FILE = 10 * 1024 * 1024 * 1024  # 10GB
 
 
 class ExifTextRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
+
+
+def _build_task_result_payload(
+    processed: int,
+    total: int,
+    recent_results: list[dict],
+    *,
+    phase: str | None = None,
+    preview_processed: int | None = None,
+    preview_total: int | None = None,
+) -> str:
+    payload = {
+        "processed": processed,
+        "total": total,
+        "results": recent_results,
+    }
+    if phase:
+        payload["phase"] = phase
+    if preview_processed is not None and preview_total is not None:
+        payload["preview_processed"] = preview_processed
+        payload["preview_total"] = preview_total
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _update_task_progress(
+    db,
+    task_id: str,
+    progress: int,
+    processed: int,
+    total: int,
+    recent_results: list[dict],
+    *,
+    phase: str | None = None,
+    preview_processed: int | None = None,
+    preview_total: int | None = None,
+):
+    result_payload = _build_task_result_payload(
+        processed,
+        total,
+        recent_results,
+        phase=phase,
+        preview_processed=preview_processed,
+        preview_total=preview_total,
+    )
+    _db_execute(
+        db,
+        "UPDATE tasks SET progress = ?, result_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (progress, result_payload, task_id),
+    )
+    _db_commit(db)
 
 
 def _delete_photo_files(photo_id: str, original_path: str | None):
@@ -122,6 +205,10 @@ async def upload_photo(
         raise HTTPException(400, "Missing filename")
 
     safe_name = _sanitize_filename(file.filename)
+    # 跳过 macOS AppleDouble 资源分叉文件（._ 前缀）
+    basename = os.path.basename(safe_name)
+    if basename.startswith('._') or basename.startswith('.'):
+        raise HTTPException(400, "Hidden/system file rejected")
     if not _validate_extension(safe_name):
         raise HTTPException(
             400,
@@ -332,6 +419,9 @@ async def list_photos(
     """分页查询照片列表，支持多条件筛选。"""
     conditions = []
     params = []
+
+    # 排除视频缩略图（文件名含 .thumbnails_）
+    conditions.append("p.filename NOT LIKE '%.thumbnails_%'")
 
     if q:
         conditions.append(
@@ -572,22 +662,36 @@ async def recognize_all(
     db=Depends(get_db),
 ):
     """一键识别图库中所有未识别的照片（异步任务）。"""
-    # 防止重复：如果已有 running 的 recognize_all 任务，返回该任务
+    # 防止重复：如果已有 pending/running 的 recognize_all 任务，直接返回该任务
     existing = db.execute(
-        "SELECT id, progress FROM tasks WHERE type = 'recognize_all' AND status = 'running'"
+        "SELECT id, progress, result_json FROM tasks "
+        "WHERE type = 'recognize_all' AND status IN ('pending', 'running') "
+        "ORDER BY created_at DESC LIMIT 1"
     ).fetchone()
     if existing:
-        total = db.execute(
+        remaining = db.execute(
             """SELECT COUNT(*) FROM photos p
                LEFT JOIN photo_scores ps ON ps.photo_id = p.id
-               WHERE ps.photo_id IS NULL"""
+               WHERE ps.photo_id IS NULL AND p.filename NOT LIKE '%.thumbnails_%'"""
         ).fetchone()[0]
+        processed = 0
+        total = 0
+        if existing["result_json"]:
+            try:
+                payload = json.loads(existing["result_json"])
+                processed = int(payload.get("processed") or 0)
+                total = int(payload.get("total") or 0)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                processed = 0
+                total = 0
+        if total <= 0:
+            total = processed + remaining if processed > 0 else remaining
         return {"id": existing["id"], "task_id": existing["id"], "total": total}
 
     rows = db.execute(
         """SELECT p.id FROM photos p
            LEFT JOIN photo_scores ps ON ps.photo_id = p.id
-           WHERE ps.photo_id IS NULL"""
+           WHERE ps.photo_id IS NULL AND p.filename NOT LIKE '%.thumbnails_%'"""
     ).fetchall()
     photo_ids = [r["id"] for r in rows]
 
@@ -1163,7 +1267,7 @@ def _run_identify(image_path: str) -> dict:
 
 def _store_bird_results(db, photo_id: str, result: dict) -> list[BirdResult]:
     """存储识别结果到 photo_birds 表。"""
-    db.execute("DELETE FROM photo_birds WHERE photo_id = ?", (photo_id,))
+    _db_execute(db, "DELETE FROM photo_birds WHERE photo_id = ?", (photo_id,))
 
     birds = []
     yolo_info = _normalize_yolo_info(result)
@@ -1179,7 +1283,8 @@ def _store_bird_results(db, photo_id: str, result: dict) -> list[BirdResult]:
             rank=i + 1,
             detection_box=detection_box,
         )
-        db.execute(
+        _db_execute(
+            db,
             """INSERT INTO photo_birds
                (photo_id, species_cn, species_en, scientific_name, confidence, rank, detection_box)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -1188,7 +1293,7 @@ def _store_bird_results(db, photo_id: str, result: dict) -> list[BirdResult]:
         )
         birds.append(bird)
 
-    db.commit()
+    _db_commit(db)
     return birds
 
 
@@ -1201,11 +1306,12 @@ def _store_scores(db, photo_id: str, result: dict, image_path: str = None, loade
     yolo_info = _normalize_yolo_info(result)
     if not yolo_info.get("detected"):
         score = PhotoScore(rating=-1)
-        db.execute(
+        _db_execute(
+            db,
             "INSERT OR REPLACE INTO photo_scores (photo_id, rating) VALUES (?, ?)",
             (photo_id, -1),
         )
-        db.commit()
+        _db_commit(db)
         return score
 
     # ── 基础参数 ──
@@ -1276,13 +1382,14 @@ def _store_scores(db, photo_id: str, result: dict, image_path: str = None, loade
         is_flying=is_flying,
     )
     kp_json = json.dumps(keypoints_data, ensure_ascii=False) if keypoints_data else None
-    db.execute(
+    _db_execute(
+        db,
         """INSERT OR REPLACE INTO photo_scores
            (photo_id, rating, head_sharp, nima_score, keypoints_json, is_flying)
            VALUES (?, ?, ?, ?, ?, ?)""",
         (photo_id, rating_result.rating, head_sharpness, topiq, kp_json, is_flying),
     )
-    db.commit()
+    _db_commit(db)
     return score
 
 
@@ -1490,11 +1597,12 @@ def _rescore_task(task_id: str, rescore_data: list[dict]):
 
     db = get_db_connection()
     try:
-        db.execute(
+        _db_execute(
+            db,
             "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (task_id,),
         )
-        db.commit()
+        _db_commit(db)
 
         total = len(rescore_data)
         for i, item in enumerate(rescore_data):
@@ -1615,8 +1723,8 @@ async def batch_recognize(
 
     task_id = str(uuid.uuid4())
     db.execute(
-        "INSERT INTO tasks (id, type, status) VALUES (?, 'recognize', 'pending')",
-        (task_id,),
+        "INSERT INTO tasks (id, type, status, config_json) VALUES (?, 'recognize', 'pending', ?)",
+        (task_id, json.dumps({"photo_ids": found_ids}, ensure_ascii=False)),
     )
     db.commit()
 
@@ -1698,7 +1806,7 @@ def _recalculate_ratings_task(task_id: str, score_data: list[dict]):
 def _batch_recognize_task(task_id: str, photo_ids: list[str]):
     """后台批量识别任务（BackgroundTasks 中运行，使用独立 DB 连接）。
     
-    方案 C 优化：预加载下一张图像 + 异步 EXIF 写入，使 CPU I/O 与 GPU 推理重叠。
+    方案 C 优化：预处理 RAW 预览缓存 + 预加载下一张图像 + 异步 EXIF 写入。
     """
     from models.database import get_db_connection
     from birdid import identify_bird
@@ -1729,16 +1837,66 @@ def _batch_recognize_task(task_id: str, photo_ids: list[str]):
             if row:
                 photo_rows[pid] = {"original_path": row["original_path"], "filename": row["filename"]}
 
+        preview_paths: dict[str, str | None] = {}
+        preview_candidate_ids: list[str] = []
+        for pid in photo_ids:
+            row_info = photo_rows.get(pid)
+            if not row_info:
+                continue
+            preview_path = os.path.join(app_config.thumbnails_dir(pid), "preview.jpg")
+            if os.path.exists(preview_path):
+                preview_paths[pid] = preview_path
+                continue
+
+            preview_paths[pid] = None
+            ext = os.path.splitext(row_info["filename"])[1].lower()
+            if ext in _RAW_PREVIEW_EXTENSIONS:
+                preview_candidate_ids.append(pid)
+
+        preview_total = len(preview_candidate_ids)
+        total_work_units = total + preview_total
+
+        for preview_index, pid in enumerate(preview_candidate_ids, start=1):
+            cancel_check = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if cancel_check and cancel_check["status"] == "cancelled":
+                logger.info(
+                    "Task %s cancelled by user during preview preparation at %d/%d",
+                    task_id,
+                    preview_index - 1,
+                    preview_total,
+                )
+                return
+
+            row_info = photo_rows[pid]
+            try:
+                preview_path = generate_preview_jpeg(row_info["original_path"], pid)
+            except Exception as e:
+                logger.warning("Preview preparation failed for photo %s: %s", pid, e)
+                preview_path = None
+            if preview_path and os.path.exists(preview_path):
+                preview_paths[pid] = preview_path
+
+            progress = int(preview_index / total_work_units * 100) if total_work_units else 0
+            _update_task_progress(
+                db,
+                task_id,
+                progress,
+                processed=0,
+                total=total,
+                recent_results=recent_results,
+                phase="preparing_previews",
+                preview_processed=preview_index,
+                preview_total=preview_total,
+            )
+
         # 预加载函数：在 GPU 推理当前照片时预加载下一张
         def _prefetch_image(pid: str, path: str):
             return _load_image_cv(path, photo_id=pid)
 
         # 启动第一张的预加载
         prefetch_future: Future | None = None
-        first_valid = None
         for pid in photo_ids:
             if pid in photo_rows:
-                first_valid = pid
                 prefetch_future = prefetch_executor.submit(
                     _prefetch_image, pid, photo_rows[pid]["original_path"]
                 )
@@ -1767,13 +1925,18 @@ def _batch_recognize_task(task_id: str, photo_ids: list[str]):
                         if len(recent_results) > 50:
                             recent_results = recent_results[-50:]
                         processed = i + 1
-                        progress = int(processed / total * 100)
-                        result_payload = json.dumps({"processed": processed, "results": recent_results}, ensure_ascii=False)
-                        db.execute(
-                            "UPDATE tasks SET progress = ?, result_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                            (progress, result_payload, task_id),
+                        progress = int((preview_total + processed) / total_work_units * 100) if total_work_units else 100
+                        _update_task_progress(
+                            db,
+                            task_id,
+                            progress,
+                            processed=processed,
+                            total=total,
+                            recent_results=recent_results,
+                            phase="recognizing",
+                            preview_processed=preview_total,
+                            preview_total=preview_total,
                         )
-                        db.commit()
                         continue
 
                 # 获取预加载结果（如果有的话）
@@ -1796,9 +1959,13 @@ def _batch_recognize_task(task_id: str, photo_ids: list[str]):
                         _prefetch_image, next_pid, photo_rows[next_pid]["original_path"]
                     )
 
-                # 优先使用 preview.jpg 加速识别（避免 ExifTool RAW 解码）
-                preview_path = os.path.join(app_config.thumbnails_dir(pid), "preview.jpg")
-                identify_path = preview_path if os.path.exists(preview_path) else row_info["original_path"]
+                # 优先使用预处理好的 preview.jpg 加速识别，避免在主识别链路同步生成
+                preview_path = preview_paths.get(pid)
+                if not preview_path:
+                    existing_preview = os.path.join(app_config.thumbnails_dir(pid), "preview.jpg")
+                    if os.path.exists(existing_preview):
+                        preview_path = existing_preview
+                identify_path = preview_path if preview_path and os.path.exists(preview_path) else row_info["original_path"]
 
                 with inference_thread_lock:
                     result = identify_bird(identify_path, use_yolo=True, top_k=5)
@@ -1842,13 +2009,18 @@ def _batch_recognize_task(task_id: str, photo_ids: list[str]):
                 recent_results = recent_results[-50:]
 
             processed = i + 1
-            progress = int(processed / total * 100)
-            result_payload = json.dumps({"processed": processed, "results": recent_results}, ensure_ascii=False)
-            db.execute(
-                "UPDATE tasks SET progress = ?, result_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (progress, result_payload, task_id),
+            progress = int((preview_total + processed) / total_work_units * 100) if total_work_units else 100
+            _update_task_progress(
+                db,
+                task_id,
+                progress,
+                processed=processed,
+                total=total,
+                recent_results=recent_results,
+                phase="recognizing",
+                preview_processed=preview_total,
+                preview_total=preview_total,
             )
-            db.commit()
 
             # 检查取消
             cancel_check = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
@@ -1866,18 +2038,20 @@ def _batch_recognize_task(task_id: str, photo_ids: list[str]):
         # 仅在未被取消时标记 done
         final_status = db.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if final_status and final_status["status"] != "cancelled":
-            db.execute(
+            _db_execute(
+                db,
                 "UPDATE tasks SET status = 'done', progress = 100, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (task_id,),
             )
-            db.commit()
+            _db_commit(db)
     except Exception as e:
         logger.error("Batch recognize task %s failed: %s", task_id, e)
-        db.execute(
+        _db_execute(
+            db,
             "UPDATE tasks SET status = 'error', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (str(e), task_id),
         )
-        db.commit()
+        _db_commit(db)
     finally:
         exif_executor.shutdown(wait=True, cancel_futures=False)
         prefetch_executor.shutdown(wait=False, cancel_futures=True)

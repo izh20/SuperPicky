@@ -39,9 +39,13 @@ async def detect_bursts(
 ):
     """检测连拍组（异步任务）。"""
     task_id = str(uuid.uuid4())
+    config_json = json.dumps({
+        "burst_time_threshold": burst_time_threshold,
+        "burst_min_count": burst_min_count,
+    }, ensure_ascii=False)
     db.execute(
-        "INSERT INTO tasks (id, type, status) VALUES (?, 'detect_bursts', 'pending')",
-        (task_id,),
+        "INSERT INTO tasks (id, type, status, config_json) VALUES (?, 'detect_bursts', 'pending', ?)",
+        (task_id, config_json),
     )
     db.commit()
 
@@ -515,12 +519,38 @@ async def synthesize_burst(
 def _synthesize_task(task_id: str, group_id: str, framerate: int, resolution: str):
     """后台合成连拍视频。"""
     db = get_db_connection()
-    try:
-        db.execute(
-            "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (task_id,),
-        )
+
+    def _update_task(progress: int, *, phase: str | None = None, detail: str | None = None,
+                     processed: int | None = None, total: int | None = None,
+                     status: str | None = None, error_msg: str | None = None):
+        payload = {}
+        if phase:
+            payload["phase"] = phase
+        if detail:
+            payload["detail"] = detail
+        if processed is not None:
+            payload["processed"] = processed
+        if total is not None:
+            payload["total"] = total
+
+        fields = ["progress = ?", "updated_at = CURRENT_TIMESTAMP"]
+        params: list = [progress]
+        if payload:
+            fields.append("result_json = ?")
+            params.append(json.dumps(payload, ensure_ascii=False))
+        if status is not None:
+            fields.append("status = ?")
+            params.append(status)
+        if error_msg is not None:
+            fields.append("error_msg = ?")
+            params.append(error_msg)
+        params.append(task_id)
+
+        db.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", tuple(params))
         db.commit()
+
+    try:
+        _update_task(2, status="running", phase="loading_frames", detail="正在收集连拍照片")
 
         photos = db.execute("""
             SELECT p.original_path
@@ -534,9 +564,33 @@ def _synthesize_task(task_id: str, group_id: str, framerate: int, resolution: st
         if not image_paths:
             raise RuntimeError("No valid images for synthesis")
 
+        _update_task(
+            8,
+            phase="loading_frames",
+            detail=f"已收集 {len(image_paths)} 张照片，准备开始合成",
+            processed=len(image_paths),
+            total=len(image_paths),
+        )
+
         output_path = os.path.join(app_config.burst_video_dir(), f"burst_{group_id}.mp4")
 
-        success = synthesize_burst_video(image_paths, output_path, framerate, resolution)
+        def _on_progress(progress: int, payload: dict | None = None):
+            payload = payload or {}
+            _update_task(
+                progress,
+                phase=payload.get("phase"),
+                detail=payload.get("detail"),
+                processed=payload.get("processed"),
+                total=payload.get("total"),
+            )
+
+        success = synthesize_burst_video(
+            image_paths,
+            output_path,
+            framerate,
+            resolution,
+            progress_callback=_on_progress,
+        )
         if not success:
             raise RuntimeError("FFmpeg synthesis failed")
 
@@ -544,19 +598,25 @@ def _synthesize_task(task_id: str, group_id: str, framerate: int, resolution: st
             "UPDATE burst_groups SET video_path = ? WHERE id = ?",
             (output_path, group_id),
         )
-        db.execute(
-            "UPDATE tasks SET status = 'done', progress = 100, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (task_id,),
+        _update_task(
+            100,
+            status="done",
+            phase="done",
+            detail="视频合成完成",
+            processed=len(image_paths),
+            total=len(image_paths),
         )
         db.commit()
 
     except Exception as e:
         logger.error("Synthesize task %s failed: %s", task_id, e)
-        db.execute(
-            "UPDATE tasks SET status = 'error', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (str(e), task_id),
+        _update_task(
+            0,
+            status="error",
+            phase="error",
+            detail="视频合成失败",
+            error_msg=str(e),
         )
-        db.commit()
     finally:
         db.close()
 

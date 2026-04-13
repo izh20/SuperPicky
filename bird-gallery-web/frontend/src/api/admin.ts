@@ -1,5 +1,5 @@
 import client from './client'
-import type { Task, SystemMetrics, DashboardStats } from '@/types'
+import type { Task, SystemMetrics, DashboardStats, AdminTaskListResponse } from '@/types'
 
 export const adminAPI = {
   health: (): Promise<{ status: string }> => client.get('/admin/health'),
@@ -10,8 +10,26 @@ export const adminAPI = {
 
   dashboard: (): Promise<DashboardStats> => client.get('/stats/dashboard'),
 
+  listTasks: (limit = 20): Promise<AdminTaskListResponse> =>
+    client.get('/admin/tasks', { params: { limit } }),
+
+  cancelTask: (id: string): Promise<{ message: string }> =>
+    client.post(`/admin/tasks/${id}/cancel`),
+
+  retryTask: (id: string): Promise<{ message: string; task_id?: string | null; total?: number | null }> =>
+    client.post(`/admin/tasks/${id}/retry`),
+
   scan: (path: string, recursive = true): Promise<Task> =>
     client.post('/library/scan', { path, recursive }),
+
+  listLogs: (): Promise<Array<{ name: string; path: string; exists: boolean; size_bytes: number }>> =>
+    client.get('/admin/logs'),
+
+  readLog: (name: string, tail = 200): Promise<{ name: string; total_lines: number; returned_lines: number; lines: string[] }> =>
+    client.get(`/admin/logs/${name}`, { params: { tail } }),
+
+  analyzeLog: (name: string, tail = 500): Promise<any> =>
+    client.get(`/admin/logs/${name}/analyze`, { params: { tail } }),
 }
 
 export const taskAPI = {

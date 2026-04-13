@@ -1,6 +1,6 @@
 <template>
-  <div class="max-w-4xl mx-auto py-6 px-4">
-    <h1 class="text-2xl font-semibold mb-6 text-text-primary dark:text-text-on-dark font-display">RAW 批量处理</h1>
+  <div class="max-w-4xl mx-auto py-4 sm:py-6 px-3 sm:px-4">
+    <h1 class="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6 text-text-primary dark:text-text-on-dark font-display">RAW 批量处理</h1>
 
     <!-- 任务进行中 -->
     <div v-if="store.running" class="space-y-4">
@@ -17,7 +17,7 @@
         </div>
 
         <!-- 阶段进度 -->
-        <div class="grid grid-cols-4 gap-2 text-xs text-center dark:text-text-on-dark-tertiary">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-center dark:text-text-on-dark-tertiary">
           <div v-for="(label, key) in phaseLabels" :key="key">
             <div class="mb-1 text-text-tertiary dark:text-text-on-dark-tertiary">{{ label }}</div>
             <div class="w-full bg-black/5 dark:bg-white/10 rounded h-1.5">
@@ -58,9 +58,9 @@
 
       <!-- 结果照片画廊 -->
       <div v-if="store.results && store.results.items.length > 0">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 class="text-lg font-semibold">处理结果预览</h2>
-          <div class="flex items-center gap-3 text-sm text-text-tertiary dark:text-text-on-dark-tertiary">
+          <div class="flex items-center gap-2 sm:gap-3 text-sm text-text-tertiary dark:text-text-on-dark-tertiary flex-wrap">
             <span>共 {{ doneItems.length }} 张</span>
             <span>第 {{ galleryPage }} / {{ galleryTotalPages }} 页</span>
             <button
@@ -189,10 +189,59 @@
         <h2 class="font-semibold mb-3 text-text-primary dark:text-text-on-dark">调色设置</h2>
         <label class="flex items-center gap-2 mb-3">
           <input type="checkbox" v-model="config.auto_tone_enabled" class="rounded" />
-          <span class="text-sm">启用自动调色</span>
+          <span class="text-sm">启用调色阶段</span>
         </label>
-        <div v-if="config.auto_tone_enabled" class="ml-6">
-          <div class="flex gap-4">
+        <div v-if="config.auto_tone_enabled" class="ml-6 space-y-4">
+          <div class="flex flex-wrap gap-4">
+            <label class="flex items-center gap-2">
+              <input type="radio" v-model="config.tone_mode" value="reference_version" />
+              <span class="text-sm">使用单张 RAW 编辑版本模板</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input type="radio" v-model="config.tone_mode" value="legacy_auto" />
+              <span class="text-sm">使用旧自动调色管线</span>
+            </label>
+          </div>
+
+          <div v-if="config.tone_mode === 'reference_version'" class="space-y-3 rounded-2xl border border-black/5 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.03]">
+            <p class="text-sm text-text-secondary dark:text-text-on-dark-secondary">
+              先在单张 RAW 编辑页保存一个版本，这里会把该版本的调色参数批量套用到所有照片。
+            </p>
+
+            <div v-if="tonePresets.length > 0" class="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+              <label class="space-y-2">
+                <span class="text-sm text-text-secondary dark:text-text-on-dark-secondary">模板版本</span>
+                <select
+                  v-model.number="selectedTonePresetId"
+                  class="w-full bg-surface-light dark:bg-white/10 border-0 rounded-lg px-3 py-2 text-sm dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40"
+                >
+                  <option v-for="preset in tonePresets" :key="preset.version_id" :value="preset.version_id">
+                    {{ tonePresetLabel(preset) }}
+                  </option>
+                </select>
+              </label>
+
+              <div v-if="selectedTonePreset" class="overflow-hidden rounded-xl border border-black/5 bg-surface-light dark:border-white/10 dark:bg-surface-card-dark">
+                <img
+                  v-if="selectedTonePreset.preview_url"
+                  :src="selectedTonePreset.preview_url"
+                  :alt="selectedTonePreset.filename"
+                  class="h-32 w-full object-cover"
+                />
+                <div class="space-y-1 p-3 text-sm">
+                  <div class="font-medium text-text-primary dark:text-text-on-dark">{{ selectedTonePreset.filename }}</div>
+                  <div class="text-text-secondary dark:text-text-on-dark-secondary">版本 V{{ selectedTonePreset.version_no }}{{ selectedTonePreset.is_current ? ' · 当前版本' : '' }}</div>
+                  <div class="text-text-tertiary dark:text-text-on-dark-tertiary">{{ selectedTonePreset.is_auto_tone ? '自动调色版本' : '手动调色版本' }}</div>
+                </div>
+              </div>
+            </div>
+
+            <p v-else class="text-sm text-amber-600 dark:text-amber-400">
+              还没有可用的 RAW 编辑版本。先到单张照片详情页保存一个版本，再回来批量套用。
+            </p>
+          </div>
+
+          <div v-else class="flex gap-4">
             <label class="flex items-center gap-2">
               <input type="radio" v-model="config.auto_tone_tool" value="lightroom" />
               <span class="text-sm">Lightroom Classic</span>
@@ -281,7 +330,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useBatchProcessStore } from '@/stores/batchProcessStore'
-import type { BatchProcessConfig, BatchProcessResultItem } from '@/types'
+import type {
+  BatchProcessConfig,
+  BatchProcessResultItem,
+  BatchTonePresetSummary,
+} from '@/types'
 
 const store = useBatchProcessStore()
 const submitting = ref(false)
@@ -300,6 +353,9 @@ const config = reactive<BatchProcessConfig>({
   denoise_luminance: 40,
   denoise_chrominance: 50,
   auto_tone_enabled: true,
+  tone_mode: 'reference_version',
+  reference_photo_id: null,
+  reference_version_id: null,
   auto_tone_tool: 'lightroom',
   crop_preset: '4k_wallpaper',
   watermark_preset: 'simple_copyright',
@@ -309,6 +365,8 @@ const config = reactive<BatchProcessConfig>({
 
 const cropPresets = ref<Record<string, { label: string }>>({})
 const watermarkPresets = ref<Record<string, { label: string }>>({})
+const tonePresets = ref<BatchTonePresetSummary[]>([])
+const selectedTonePresetId = ref<number | null>(null)
 
 // Gallery state
 const galleryPage = ref(1)
@@ -329,6 +387,10 @@ const pagedItems = computed(() => {
   return doneItems.value.slice(start, start + galleryPageSize)
 })
 
+const selectedTonePreset = computed(() =>
+  tonePresets.value.find((preset) => preset.version_id === selectedTonePresetId.value) ?? null,
+)
+
 function thumbUrl(item: BatchProcessResultItem) {
   return `/api/batch-process/${store.taskId}/photo/${item.photo_id}?thumb=true`
 }
@@ -343,6 +405,23 @@ function openLightbox(item: BatchProcessResultItem) {
   lightboxItem.value = item
 }
 
+function tonePresetLabel(preset: BatchTonePresetSummary) {
+  const tags = [`V${preset.version_no}`]
+  if (preset.is_current) {
+    tags.push('当前版本')
+  }
+  if (preset.is_auto_tone) {
+    tags.push('自动')
+  }
+  return `${preset.filename} · ${tags.join(' · ')}`
+}
+
+function syncTonePresetSelection() {
+  const preset = selectedTonePreset.value
+  config.reference_photo_id = preset?.photo_id ?? null
+  config.reference_version_id = preset?.version_id ?? null
+}
+
 onMounted(async () => {
   store.tryRestore()
   try {
@@ -350,6 +429,13 @@ onMounted(async () => {
     if (store.options) {
       cropPresets.value = store.options.crop_presets
       watermarkPresets.value = store.options.watermark_presets
+      tonePresets.value = store.options.tone_presets || []
+      if (tonePresets.value.length > 0) {
+        selectedTonePresetId.value = tonePresets.value[0].version_id
+        syncTonePresetSelection()
+      } else {
+        config.tone_mode = 'legacy_auto'
+      }
     }
   } catch {}
   // If not running, try to load the latest completed task for display
@@ -359,9 +445,23 @@ onMounted(async () => {
 })
 
 async function handleSubmit() {
+  syncTonePresetSelection()
+  if (config.auto_tone_enabled && config.tone_mode === 'reference_version' && !selectedTonePreset.value) {
+    alert('请先选择一个 RAW 编辑版本模板')
+    return
+  }
+
   submitting.value = true
   try {
-    await store.start({ ...config })
+    await store.start({
+      ...config,
+      reference_photo_id: config.tone_mode === 'reference_version'
+        ? selectedTonePreset.value?.photo_id ?? null
+        : null,
+      reference_version_id: config.tone_mode === 'reference_version'
+        ? selectedTonePreset.value?.version_id ?? null
+        : null,
+    })
   } catch (e: unknown) {
     alert(e instanceof Error ? e.message : '启动失败')
   } finally {
@@ -371,5 +471,15 @@ async function handleSubmit() {
 
 function resetForm() {
   store.$reset()
+  if (tonePresets.value.length > 0) {
+    selectedTonePresetId.value = tonePresets.value[0].version_id
+    config.tone_mode = 'reference_version'
+    syncTonePresetSelection()
+    return
+  }
+  selectedTonePresetId.value = null
+  config.reference_photo_id = null
+  config.reference_version_id = null
+  config.tone_mode = 'legacy_auto'
 }
 </script>

@@ -101,3 +101,32 @@ def find_duplicates(db) -> list[dict]:
 
     db.commit()
     return groups
+
+
+def run_find_duplicates_task(task_id: str):
+    """后台运行的任务封装：在独立 DB 连接中执行 find_duplicates 并更新 tasks 表状态。"""
+    import json
+    from models.database import get_db_connection
+
+    db = get_db_connection()
+    try:
+        # 标记为 running
+        db.execute("UPDATE tasks SET status = 'running', progress = 0 WHERE id = ?", (task_id,))
+        db.commit()
+
+        groups = find_duplicates(db)
+
+        # 将结果写入 tasks.result_json，并标记为 done
+        db.execute(
+            "UPDATE tasks SET status = 'done', progress = 100, result_json = ? WHERE id = ?",
+            (json.dumps({"groups": groups, "total_groups": len(groups)}), task_id),
+        )
+        db.commit()
+    except Exception as e:
+        try:
+            db.execute("UPDATE tasks SET status = 'error', error_msg = ? WHERE id = ?", (str(e), task_id))
+            db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()

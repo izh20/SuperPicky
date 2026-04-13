@@ -1,9 +1,9 @@
 <template>
-  <div class="max-w-5xl mx-auto px-5 py-6">
-    <h1 class="text-xl font-semibold text-text-primary dark:text-text-on-dark mb-4 font-display">鸟种目录</h1>
+  <div class="max-w-5xl mx-auto px-3 sm:px-5 py-4 sm:py-6">
+    <h1 class="text-lg sm:text-xl font-semibold text-text-primary dark:text-text-on-dark mb-4 font-display">鸟种目录</h1>
 
     <!-- 搜索 -->
-    <div class="relative mb-6 max-w-xs">
+    <div class="relative mb-4 sm:mb-6 max-w-xs">
       <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-tertiary dark:text-text-on-dark-tertiary" />
       <input
         v-model="birdStore.searchQuery"
@@ -20,7 +20,7 @@
       description="识别照片后将在此显示鸟种统计"
       :icon="Bird"
     />
-    <div v-else class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+    <div v-else class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
       <RouterLink
         v-for="b in birdStore.filtered()"
         :key="b.species_cn"

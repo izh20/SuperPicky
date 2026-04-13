@@ -56,6 +56,9 @@ def resource_path(relative_path: str) -> str:
     meipass = getattr(sys, '_MEIPASS', None)
     if isinstance(meipass, str):
         return os.path.join(meipass, relative_path)
+    app_root = getattr(sys, '_SUPERPICKY_APP_ROOT', None)
+    if app_root:
+        return os.path.join(app_root, relative_path)
     return os.path.join(os.path.abspath('.'), relative_path)
 
 

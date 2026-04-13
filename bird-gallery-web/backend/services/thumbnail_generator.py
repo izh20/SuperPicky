@@ -12,6 +12,20 @@ from PIL import Image, ExifTags
 
 logger = logging.getLogger(__name__)
 
+
+def _get_exiftool_cmd() -> str:
+    """获取项目自带的 exiftool 路径。"""
+    # 项目根目录：backend/../..
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+    bundled = os.path.join(project_root, 'exiftools_mac', 'exiftool')
+    if os.path.exists(bundled):
+        return bundled
+    # 回退到系统 exiftool
+    return 'exiftool'
+
+
+_EXIFTOOL = _get_exiftool_cmd()
+
 _THUMB_SIZES = {
     "sm": 200,
     "md": 800,
@@ -106,7 +120,7 @@ def _extract_preview_via_exiftool(file_path: str) -> Image.Image | None:
     for tag in ("-JpgFromRaw", "-PreviewImage"):
         try:
             result = subprocess.run(
-                ["exiftool", tag, "-b", file_path],
+                [_EXIFTOOL, tag, "-b", file_path],
                 capture_output=True, timeout=30,
             )
             if result.returncode == 0 and len(result.stdout) > 1000:
@@ -198,7 +212,7 @@ def get_image_dimensions(file_path: str) -> tuple[int, int] | None:
     try:
         import subprocess
         result = subprocess.run(
-            ["exiftool", "-s3", "-ExifImageWidth", "-ExifImageHeight", file_path],
+            [_EXIFTOOL, "-s3", "-ExifImageWidth", "-ExifImageHeight", file_path],
             capture_output=True, text=True, timeout=10,
         )
         if result.returncode == 0:

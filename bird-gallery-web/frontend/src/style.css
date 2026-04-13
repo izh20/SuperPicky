@@ -52,32 +52,36 @@
 @layer components {
   /* Apple 按钮系统 */
   .btn-primary {
-    @apply bg-apple-blue text-white px-4 py-2 rounded-lg text-[17px]
+    @apply bg-apple-blue text-white px-4 py-2 rounded-lg text-[17px] font-normal
            hover:brightness-110 active:brightness-95
            focus:outline-none focus:ring-2 focus:ring-apple-blue/50
            transition-all duration-200 disabled:opacity-50;
+    letter-spacing: -0.374px;
   }
 
   .btn-dark {
-    @apply bg-text-primary text-white px-4 py-2 rounded-lg text-[17px]
+    @apply bg-text-primary text-white px-4 py-2 rounded-lg text-[17px] font-normal
            hover:bg-[#333336] active:brightness-95
            focus:outline-none focus:ring-2 focus:ring-apple-blue/50
            transition-all duration-200 disabled:opacity-50;
+    letter-spacing: -0.374px;
   }
 
   .btn-pill {
-    @apply border border-apple-link-light text-apple-link-light px-4 py-1.5
-           rounded-pill text-sm
+    @apply border border-apple-link-light text-apple-link-light px-5 py-2
+           rounded-pill text-[14px]
            hover:bg-apple-link-light hover:text-white
            transition-all duration-200;
+    letter-spacing: -0.224px;
   }
 
   .btn-ghost {
-    @apply text-apple-link-light text-sm hover:underline transition-colors;
+    @apply text-apple-link-light text-[14px] hover:underline transition-colors;
+    letter-spacing: -0.224px;
   }
 
   .btn-secondary {
-    @apply bg-surface-light text-text-primary px-4 py-2 rounded-lg text-sm
+    @apply bg-surface-light text-text-primary px-4 py-2 rounded-lg text-[14px]
            hover:bg-gray-200 active:bg-gray-300
            transition-all duration-200 disabled:opacity-50;
     .dark & {
@@ -88,6 +92,7 @@
   /* Apple 卡片系统 */
   .card-apple {
     @apply bg-white rounded-xl;
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
   }
 
   .dark .card-apple {
@@ -96,12 +101,12 @@
 
   .card-apple-elevated {
     @apply bg-white rounded-xl;
-    box-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+    box-shadow: rgba(0, 0, 0, 0.12) 0px 4px 24px 0px;
   }
 
   .dark .card-apple-elevated {
     @apply bg-surface-card-dark;
-    box-shadow: rgba(0, 0, 0, 0.5) 3px 5px 30px 0px;
+    box-shadow: rgba(0, 0, 0, 0.4) 0px 4px 24px 0px;
   }
 
   /* Apple 玻璃导航 */

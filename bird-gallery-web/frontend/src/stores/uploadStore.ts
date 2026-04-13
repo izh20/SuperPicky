@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { shallowRef, triggerRef } from 'vue'
+import { shallowRef, ref, triggerRef } from 'vue'
 import { uploadAPI } from '@/api/upload'
 
 export interface UploadItem {
@@ -26,12 +26,100 @@ export const useUploadStore = defineStore('upload', () => {
   let _abortController: AbortController | null = null
   let _aborted = false
 
+  // 上传状态
+  const uploading = ref(false)
+
+  // 添加文件进度
+  const addingFiles = ref(false)
+  const addingProgress = ref('')
+
+  // ── sessionStorage 持久化（刷新后恢复摘要） ──
+  const SS_KEY = 'upload_summary'
+
+  function _saveSummary() {
+    const q = queue.value
+    if (q.length === 0) {
+      sessionStorage.removeItem(SS_KEY)
+      return
+    }
+    const summary = {
+      total: q.length,
+      done: q.filter(u => u.status === 'done').length,
+      errors: q.filter(u => u.status === 'error').length,
+      uploading: uploading.value,
+      items: q.map(u => ({
+        id: u.id, filename: u.filename, size: u.size, type: u.type,
+        status: u.status, progress: u.progress, loaded: u.loaded, error: u.error,
+      })),
+    }
+    try { sessionStorage.setItem(SS_KEY, JSON.stringify(summary)) } catch { /* quota */ }
+  }
+
+  function _restoreFromSession() {
+    try {
+      const raw = sessionStorage.getItem(SS_KEY)
+      if (!raw) return
+      const summary = JSON.parse(raw)
+      if (!summary?.items?.length) return
+      // 恢复队列（File 引用已丢失，正在上传的标记为中断）
+      const items: UploadItem[] = summary.items.map((u: any) => ({
+        ...u,
+        status: u.status === 'uploading' ? 'error' : u.status,
+        error: u.status === 'uploading' ? '页面刷新，上传中断' : u.error,
+        speed: 0,
+      }))
+      queue.value = items
+      uploading.value = false
+    } catch { /* ignore */ }
+  }
+
+  // 启动时恢复
+  _restoreFromSession()
+
+  let _notifyTimer: ReturnType<typeof setTimeout> | null = null
   function _notify() {
-    // 手动触发 shallowRef 的更新通知
+    // 节流：最多 200ms 触发一次 UI 更新，防止 5000+ 文件时频繁重渲染
+    if (_notifyTimer) return
+    _notifyTimer = setTimeout(() => {
+      _notifyTimer = null
+      triggerRef(queue)
+    }, 200)
+  }
+  function _notifyNow() {
+    if (_notifyTimer) { clearTimeout(_notifyTimer); _notifyTimer = null }
     triggerRef(queue)
   }
 
-  function addFiles(files: File[]) {
+  const ADD_BATCH = 500 // 每批处理 500 个文件
+
+  async function addFiles(files: File[]) {
+    if (files.length <= ADD_BATCH) {
+      // 少量文件直接同步添加
+      const items = _buildItems(files)
+      queue.value = [...queue.value, ...items]
+      return
+    }
+    // 大量文件：先在内存中构建所有 UploadItem，最后一次性赋值到 queue
+    addingFiles.value = true
+    addingProgress.value = `正在加载 0/${files.length} 个文件…`
+    const allItems: UploadItem[] = []
+    let processed = 0
+    for (let i = 0; i < files.length; i += ADD_BATCH) {
+      const batch = files.slice(i, i + ADD_BATCH)
+      const items = _buildItems(batch)
+      allItems.push(...items)
+      processed += batch.length
+      addingProgress.value = `正在加载 ${processed}/${files.length} 个文件…`
+      // 让出主线程，保持 UI 响应
+      await new Promise(r => setTimeout(r, 0))
+    }
+    // 一次性赋值，只触发一次 Vue 响应式更新
+    queue.value = [...queue.value, ...allItems]
+    addingFiles.value = false
+    addingProgress.value = ''
+  }
+
+  function _buildItems(files: File[]): UploadItem[] {
     const items: UploadItem[] = []
     for (const f of files) {
       const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
@@ -49,7 +137,7 @@ export const useUploadStore = defineStore('upload', () => {
         loaded: 0,
       })
     }
-    queue.value = [...queue.value, ...items]
+    return items
   }
 
   function removeItem(id: string) {
@@ -68,6 +156,7 @@ export const useUploadStore = defineStore('upload', () => {
     const pending = queue.value.filter(i => i.status === 'queued')
     if (!pending.length) return
 
+    uploading.value = true
     _abortController = new AbortController()
     _aborted = false
     const signal = _abortController.signal
@@ -100,6 +189,8 @@ export const useUploadStore = defineStore('upload', () => {
 
     // 终止后将剩余 queued 项保留为 queued 状态，以便重新上传
     _abortController = null
+    uploading.value = false
+    _saveSummary()
   }
 
   function abortAll() {
@@ -113,7 +204,9 @@ export const useUploadStore = defineStore('upload', () => {
         item.speed = 0
       }
     }
+    uploading.value = false
     _notify()
+    _saveSummary()
   }
 
   /** 将所有被终止/失败的项重置为 queued，以便重新上传 */
@@ -209,7 +302,14 @@ export const useUploadStore = defineStore('upload', () => {
       item.speed = 0
     }
     _notify()
+    _saveSummary()
   }
 
-  return { queue, addFiles, removeItem, clearDone, startAll, abortAll, retryFailed, _uploadOne }
+  function clearQueue() {
+    queue.value = []
+    _fileMap.clear()
+    sessionStorage.removeItem(SS_KEY)
+  }
+
+  return { queue, uploading, addFiles, removeItem, clearDone, startAll, abortAll, retryFailed, clearQueue, addingFiles, addingProgress }
 })

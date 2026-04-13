@@ -97,6 +97,50 @@ curl -X POST http://127.0.0.1:8000/api/library/scan \
 - 后端：在终端按 `Ctrl+C`
 - 前端：在终端按 `Ctrl+C`
 
+## 5.1 一键管理脚本
+
+如果希望在网站异常时快速恢复整套服务，可直接使用项目自带脚本：
+
+```bash
+cd /Users/zhouheng/claude/superpicky/SuperPicky/bird-gallery-web
+
+# 一键启动前端、后端、nginx
+./gallery.sh start
+
+# 一键停止整套服务
+./gallery.sh stop
+
+# 重启
+./gallery.sh restart
+
+# 查看状态
+./gallery.sh status
+
+# 仅运行健康检查，失败时返回非 0
+./gallery.sh healthcheck
+
+# 查看最近日志
+./gallery.sh logs
+
+# 检查缺失服务并自动补拉
+./gallery.sh ensure
+
+# 安装开机/登录自动恢复 LaunchAgent
+./gallery.sh install-agent
+
+# 查看 LaunchAgent 状态
+./gallery.sh agent-status
+
+# 卸载 LaunchAgent
+./gallery.sh uninstall-agent
+```
+
+说明：
+
+- 该脚本会直接管理 `127.0.0.1:5173`、`127.0.0.1:8000` 和内部 `80/443` 的 nginx。
+- 外部设备仍然通过你的端口映射访问，例如：外部 `3000 -> 内部 80`。
+- `install-agent` 会在 macOS 登录时自动执行一次 `./gallery.sh ensure`，并且每 60 秒再检查一次是否需要恢复服务。
+
 ## 6. 重置数据（可选）
 
 ```bash

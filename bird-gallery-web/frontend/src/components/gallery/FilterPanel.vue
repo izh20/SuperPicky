@@ -1,13 +1,14 @@
 <template>
-  <div class="px-5 py-3 text-[14px]">
-    <div class="flex flex-wrap items-end gap-3">
+  <div class="px-3 sm:px-5 py-3 text-[14px]">
+    <!-- 移动端：两列网格；桌面端：单行 flex -->
+    <div class="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-end gap-2.5 sm:gap-3">
       <!-- 搜索 -->
-      <div class="flex flex-col gap-1">
+      <div class="col-span-2 sm:col-span-1 flex flex-col gap-1">
         <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">搜索</label>
         <input
           type="text"
           :value="modelValue.q ?? ''"
-          class="filter-input w-44"
+          class="filter-input w-full sm:w-44"
           placeholder="文件名 / 物种"
           @input="emit('update', 'q', ($event.target as HTMLInputElement).value || undefined)"
         />
@@ -18,7 +19,7 @@
         <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">鸟种</label>
         <select
           :value="modelValue.species ?? ''"
-          class="filter-input w-36"
+          class="filter-input w-full sm:w-36"
           @change="emit('update', 'species', ($event.target as HTMLSelectElement).value || undefined)"
         >
           <option value="">全部</option>
@@ -31,7 +32,7 @@
         <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">相机</label>
         <select
           :value="modelValue.camera ?? ''"
-          class="filter-input w-36"
+          class="filter-input w-full sm:w-36"
           @change="emit('update', 'camera', ($event.target as HTMLSelectElement).value || undefined)"
         >
           <option value="">全部</option>
@@ -44,7 +45,7 @@
         <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">日期</label>
         <select
           :value="modelValue.date_from ?? ''"
-          class="filter-input w-36"
+          class="filter-input w-full sm:w-36"
           @change="onDateSelect(($event.target as HTMLSelectElement).value)"
         >
           <option value="">全部</option>
@@ -52,35 +53,12 @@
         </select>
       </div>
 
-      <!-- 评分 -->
-      <div class="flex flex-col gap-1">
-        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">评分</label>
-        <div class="flex gap-1.5">
-          <select
-            :value="modelValue.rating_min ?? ''"
-            class="filter-input w-20"
-            @change="emit('update', 'rating_min', toNumSelect($event))"
-          >
-            <option value="">最低</option>
-            <option v-for="r in [0, 1, 2, 3]" :key="r" :value="r">≥ {{ r }}★</option>
-          </select>
-          <select
-            :value="modelValue.rating_max ?? ''"
-            class="filter-input w-20"
-            @change="emit('update', 'rating_max', toNumSelect($event))"
-          >
-            <option value="">最高</option>
-            <option v-for="r in [0, 1, 2, 3]" :key="r" :value="r">≤ {{ r }}★</option>
-          </select>
-        </div>
-      </div>
-
       <!-- 识别状态 -->
       <div class="flex flex-col gap-1">
         <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">状态</label>
         <select
           :value="modelValue.recognized ?? ''"
-          class="filter-input w-28"
+          class="filter-input w-full sm:w-28"
           @change="emit('update', 'recognized', ($event.target as HTMLSelectElement).value || undefined)"
         >
           <option value="">全部</option>
@@ -90,8 +68,31 @@
         </select>
       </div>
 
-      <!-- 置信度 -->
+      <!-- 评分 -->
       <div class="flex flex-col gap-1">
+        <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">评分</label>
+        <div class="flex gap-1.5">
+          <select
+            :value="modelValue.rating_min ?? ''"
+            class="filter-input flex-1 sm:w-20"
+            @change="emit('update', 'rating_min', toNumSelect($event))"
+          >
+            <option value="">最低</option>
+            <option v-for="r in [0, 1, 2, 3]" :key="r" :value="r">≥ {{ r }}★</option>
+          </select>
+          <select
+            :value="modelValue.rating_max ?? ''"
+            class="filter-input flex-1 sm:w-20"
+            @change="emit('update', 'rating_max', toNumSelect($event))"
+          >
+            <option value="">最高</option>
+            <option v-for="r in [0, 1, 2, 3]" :key="r" :value="r">≤ {{ r }}★</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 置信度 -->
+      <div class="col-span-2 sm:col-span-1 flex flex-col gap-1">
         <label class="text-[12px] text-text-tertiary dark:text-text-on-dark-tertiary">
           置信度 ≥ <strong class="text-text-primary dark:text-text-on-dark">{{ confidenceVal }}%</strong>
         </label>
@@ -99,40 +100,42 @@
           type="range"
           :value="confidenceVal"
           min="0" max="100" step="5"
-          class="w-28 accent-apple-blue"
+          class="w-full sm:w-28 accent-apple-blue h-[34px]"
           @input="onConfidenceInput(($event.target as HTMLInputElement).value)"
         />
       </div>
 
-      <!-- 复选框组 -->
-      <div class="flex items-center gap-4 py-1">
-        <label class="flex items-center gap-1.5 text-[14px] text-text-secondary dark:text-text-on-dark-secondary cursor-pointer">
-          <input
-            type="checkbox"
-            :checked="modelValue.has_gps ?? false"
-            class="accent-apple-blue"
-            @change="emit('update', 'has_gps', ($event.target as HTMLInputElement).checked || undefined)"
-          />
-          GPS
-        </label>
-        <label class="flex items-center gap-1.5 text-[14px] text-text-secondary dark:text-text-on-dark-secondary cursor-pointer">
-          <input
-            type="checkbox"
-            :checked="modelValue.has_flying ?? false"
-            class="accent-apple-blue"
-            @change="emit('update', 'has_flying', ($event.target as HTMLInputElement).checked || undefined)"
-          />
-          飞版
-        </label>
-      </div>
+      <!-- 底部行：复选框 + 重置 -->
+      <div class="col-span-2 flex items-center justify-between pt-1 border-t border-black/5 dark:border-white/10 sm:border-0 sm:pt-0 sm:ml-auto sm:gap-4">
+        <div class="flex items-center gap-4">
+          <label class="flex items-center gap-1.5 text-[13px] sm:text-[14px] text-text-secondary dark:text-text-on-dark-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="modelValue.has_gps ?? false"
+              class="accent-apple-blue"
+              @change="emit('update', 'has_gps', ($event.target as HTMLInputElement).checked || undefined)"
+            />
+            GPS
+          </label>
+          <label class="flex items-center gap-1.5 text-[13px] sm:text-[14px] text-text-secondary dark:text-text-on-dark-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="modelValue.has_flying ?? false"
+              class="accent-apple-blue"
+              @change="emit('update', 'has_flying', ($event.target as HTMLInputElement).checked || undefined)"
+            />
+            飞版
+          </label>
+        </div>
 
-      <!-- 重置 -->
-      <button
-        class="btn-ghost text-[12px] py-1"
-        @click="emit('reset')"
-      >
-        重置
-      </button>
+        <!-- 重置 -->
+        <button
+          class="text-[13px] text-apple-link-light dark:text-apple-link-dark hover:underline transition-colors"
+          @click="emit('reset')"
+        >
+          重置筛选
+        </button>
+      </div>
     </div>
   </div>
 </template>

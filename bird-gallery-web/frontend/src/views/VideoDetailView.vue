@@ -1,16 +1,16 @@
 <template>
-  <div class="max-w-6xl mx-auto px-5 py-6">
+  <div class="max-w-6xl mx-auto px-3 sm:px-5 py-4 sm:py-6">
     <Spinner v-if="loading" />
     <div v-else-if="!video" class="text-center py-20 text-text-tertiary dark:text-text-on-dark-tertiary">视频不存在</div>
     <div v-else class="flex flex-col gap-6">
       <!-- 导航 -->
-      <div class="flex items-center gap-2">
-        <button @click="$router.back()" class="flex items-center gap-1 text-sm text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark">
+      <div class="flex flex-wrap items-center gap-2">
+        <button @click="$router.back()" class="flex items-center gap-1 text-sm text-text-tertiary dark:text-text-on-dark-tertiary hover:text-text-primary dark:hover:text-text-on-dark shrink-0">
           <ArrowLeft class="w-4 h-4" /> 返回
         </button>
         <span class="text-black/10 dark:text-white/20">|</span>
-        <span class="text-sm text-text-primary dark:text-text-on-dark font-medium">{{ video.filename }}</span>
-        <span class="ml-2 px-2 py-0.5 rounded text-xs text-white" :class="statusClass(video.status)">
+        <span class="text-sm text-text-primary dark:text-text-on-dark font-medium truncate min-w-0">{{ video.filename }}</span>
+        <span class="ml-1 sm:ml-2 px-2 py-0.5 rounded text-xs text-white shrink-0" :class="statusClass(video.status)">
           {{ statusLabel(video.status) }}
         </span>
         <div class="flex-1" />
@@ -18,16 +18,16 @@
           v-if="authStore.isAdmin"
           @click="deleteVideo"
           :disabled="deletingVideo"
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
+          class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 transition-colors shrink-0"
         >
           <Trash2 class="w-4 h-4" />
-          {{ deletingVideo ? '删除中…' : '删除视频' }}
+          <span class="hidden sm:inline">{{ deletingVideo ? '删除中…' : '删除视频' }}</span>
         </button>
       </div>
 
-      <div class="flex gap-6">
+      <div class="flex flex-col lg:flex-row gap-4 lg:gap-6">
         <!-- 左：播放器 + 时间轴 -->
-        <div class="flex-1 flex flex-col gap-4">
+        <div class="flex-1 flex flex-col gap-4 min-w-0">
           <!-- 视频播放器 -->
           <div class="bg-black rounded-xl overflow-hidden">
             <video
@@ -62,7 +62,7 @@
           </div>
 
           <!-- 分析控制 -->
-          <div class="card-apple dark:bg-surface-card-dark p-4 flex items-center gap-3">
+          <div class="card-apple dark:bg-surface-card-dark p-3 sm:p-4 flex flex-wrap items-center gap-2 sm:gap-3">
             <select v-model="strategy" class="px-2 py-1.5 text-sm bg-surface-light dark:bg-white/10 border-0 rounded-lg dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40">
               <option value="interval">等间隔（默认）</option>
               <option value="keyframe">关键帧</option>
@@ -72,7 +72,8 @@
             <button
               @click="analyze"
               :disabled="analyzing"
-              class="px-4 py-1.5 btn-primary text-sm"
+              class="px-4 py-1.5 text-sm text-white rounded-lg transition-all"
+              :class="analyzing ? 'bg-apple-blue/70 animate-pulse' : 'bg-apple-blue hover:brightness-110 active:brightness-95'"
             >
               <span v-if="analyzing">分析中… {{ progress }}%</span>
               <span v-else>{{ video.status === 'done' ? '重新分析' : '开始分析' }}</span>
@@ -80,9 +81,9 @@
           </div>
 
           <!-- 导出片段 -->
-          <div v-if="video.status === 'done'" class="card-apple dark:bg-surface-card-dark p-4">
+          <div v-if="video.status === 'done'" class="card-apple dark:bg-surface-card-dark p-3 sm:p-4">
             <h3 class="font-semibold text-text-primary dark:text-text-on-dark mb-3 text-sm">导出片段</h3>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <label class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary">起始(秒)</label>
               <input v-model.number="clipStart" type="number" min="0" step="0.1"
                 class="w-20 px-2 py-1 text-sm bg-surface-light dark:bg-white/10 border-0 rounded-lg dark:text-text-on-dark focus:ring-2 focus:ring-apple-blue/40" />
@@ -101,7 +102,7 @@
         </div>
 
         <!-- 右：精彩帧 + 统计 -->
-        <div class="w-72 flex flex-col gap-4">
+        <div class="w-full lg:w-72 flex flex-col gap-4">
           <!-- 精彩帧 -->
           <div v-if="videoStore.highlights.length" class="card-apple dark:bg-surface-card-dark p-4">
             <h3 class="font-semibold text-text-primary dark:text-text-on-dark mb-3 text-sm">精彩帧</h3>
@@ -149,6 +150,7 @@ import { ArrowLeft, Trash2 } from 'lucide-vue-next'
 import { useVideoStore } from '@/stores/videoStore'
 import { useToastStore } from '@/stores/toastStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { videoAPI } from '@/api/videos'
 import { taskAPI } from '@/api/admin'
 import Spinner from '@/components/common/Spinner.vue'
@@ -159,6 +161,7 @@ const router = useRouter()
 const videoStore = useVideoStore()
 const toast = useToastStore()
 const authStore = useAuthStore()
+const taskStore = useTaskStore()
 const video = ref<Video | null>(null)
 const loading = ref(true)
 const videoEl = ref<HTMLVideoElement | null>(null)
@@ -234,6 +237,8 @@ async function analyze() {
   if (!video.value) return
   analyzing.value = true
   progress.value = 0
+  const videoName = video.value.filename?.replace(/^.*[\\/]/, '') ?? '视频'
+  taskStore.setActiveTask(`正在分析 ${videoName}`, 0)
   try {
     const task = await videoAPI.analyze(video.value.id, strategy.value)
     const taskId = (task as any).task_id ?? task.id
@@ -243,6 +248,7 @@ async function analyze() {
       const tick = async () => {
         const t = await taskAPI.get(taskId)
         progress.value = t.progress ?? 0
+        taskStore.setActiveTask(`正在分析 ${videoName}`, t.progress ?? 0)
         if (t.status === 'done') return resolve()
         if (t.status === 'error') return reject(new Error(t.error_msg ?? '分析失败'))
         setTimeout(tick, 1500)
@@ -257,6 +263,7 @@ async function analyze() {
     toast.error(e.message)
   } finally {
     analyzing.value = false
+    taskStore.clearActiveTask()
   }
 }
 

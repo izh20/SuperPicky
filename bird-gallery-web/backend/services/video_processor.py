@@ -15,6 +15,18 @@ import re
 logger = logging.getLogger(__name__)
 
 
+def _get_exiftool_cmd() -> str:
+    """优先使用项目内置的 exiftool，避免依赖系统安装。"""
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+    bundled = os.path.join(project_root, 'exiftools_mac', 'exiftool')
+    if os.path.exists(bundled):
+        return bundled
+    return 'exiftool'
+
+
+_EXIFTOOL = _get_exiftool_cmd()
+
+
 def get_video_info(video_path: str) -> dict | None:
     """用 ffprobe 获取视频元信息。"""
     try:
@@ -247,6 +259,7 @@ def synthesize_burst_video(
     output_path: str,
     framerate: int = 20,
     resolution: str = "1920x1080",
+    progress_callback=None,
 ) -> bool:
     """将连拍照片序列合成为 H.264 MP4。
 
@@ -265,6 +278,8 @@ def synthesize_burst_video(
     resolved_paths = []
     try:
         has_raw = any(os.path.splitext(p)[1].lower() in RAW_EXTS for p in image_paths)
+        raw_total = sum(1 for p in image_paths if os.path.splitext(p)[1].lower() in RAW_EXTS)
+        raw_processed = 0
 
         if has_raw:
             temp_dir = tempfile.mkdtemp(prefix="burst_synth_")
@@ -276,14 +291,47 @@ def synthesize_burst_video(
                         resolved_paths.append(jpg_path)
                     else:
                         logger.warning("Skipping RAW file that cannot be extracted: %s", img_path)
+                    raw_processed += 1
+                    if progress_callback and raw_total > 0:
+                        progress = 10 + int(raw_processed / raw_total * 60)
+                        progress_callback(
+                            min(progress, 70),
+                            {
+                                "phase": "extracting_raw",
+                                "processed": raw_processed,
+                                "total": raw_total,
+                                "detail": f"正在提取 RAW 预览图 {raw_processed} / {raw_total}",
+                            },
+                        )
                 else:
                     resolved_paths.append(img_path)
         else:
             resolved_paths = image_paths
+            if progress_callback:
+                progress_callback(
+                    35,
+                    {
+                        "phase": "preparing_frames",
+                        "processed": len(resolved_paths),
+                        "total": len(resolved_paths),
+                        "detail": f"正在准备 {len(resolved_paths)} 张照片帧",
+                    },
+                )
 
         if not resolved_paths:
             logger.error("No valid images after RAW extraction")
             return False
+
+        if progress_callback:
+            progress_callback(
+                80,
+                {
+                    "phase": "encoding_video",
+                    "processed": len(resolved_paths),
+                    "total": len(resolved_paths),
+                    "detail": f"正在编码视频，共 {len(resolved_paths)} 帧",
+                },
+            )
 
         # 使用 concat demuxer file list
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
@@ -310,6 +358,8 @@ def synthesize_burst_video(
             result = subprocess.run(cmd, capture_output=True, timeout=600, start_new_session=True)
             if result.returncode != 0:
                 logger.error("FFmpeg burst synthesis failed: %s", result.stderr[-1000:] if result.stderr else "")
+            elif progress_callback:
+                progress_callback(95, {"phase": "finalizing", "detail": "正在写入视频文件"})
             return result.returncode == 0
         except Exception as e:
             logger.error("Burst synthesis failed: %s", e)
@@ -327,7 +377,7 @@ def _extract_raw_to_jpeg(raw_path: str, out_jpeg: str) -> bool:
     for tag in ("-JpgFromRaw", "-PreviewImage"):
         try:
             result = subprocess.run(
-                ["exiftool", tag, "-b", raw_path],
+                [_EXIFTOOL, tag, "-b", raw_path],
                 capture_output=True, timeout=30,
             )
             if result.returncode == 0 and len(result.stdout) > 1000:

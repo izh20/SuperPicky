@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-5xl mx-auto px-5 py-6">
+  <div class="max-w-5xl mx-auto px-3 sm:px-5 py-4 sm:py-6">
     <Spinner v-if="loading" />
     <div v-else-if="!burstStore.current" class="text-center py-20 text-text-tertiary dark:text-text-on-dark-tertiary">连拍组不存在</div>
     <div v-else class="flex flex-col gap-6">
@@ -17,7 +17,7 @@
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2">
             <Zap class="w-4 h-4 text-emerald-500 animate-pulse" />
-            <span class="text-sm font-medium text-text-primary dark:text-text-on-dark">正在识别鸟类并评分…</span>
+            <span class="text-sm font-medium text-text-primary dark:text-text-on-dark">{{ taskStore.recognizeTitle }}</span>
           </div>
           <div class="flex items-center gap-3">
             <span class="text-sm font-mono text-emerald-500">{{ taskStore.recognizeProgress }}%</span>
@@ -59,8 +59,9 @@
               <span class="text-text-tertiary dark:text-text-on-dark-tertiary">—</span>
               <span class="text-emerald-600 dark:text-emerald-400 font-medium">{{ item.species_cn }}</span>
               <span v-if="item.rating != null && item.rating >= 0" class="text-amber-500">{{ '⭐'.repeat(item.rating) }}{{ item.rating === 0 ? '☆' : '' }}</span>
-              <span v-if="item.head_sharp != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">锐度 {{ item.head_sharp }}</span>
-              <span v-if="item.nima_score != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">美学 {{ item.nima_score }}</span>
+              <span v-if="item.head_sharp != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">锐度 {{ item.head_sharp.toFixed(2) }}</span>
+              <span v-if="item.nima_score != null" class="text-text-tertiary dark:text-text-on-dark-tertiary">美学 {{ item.nima_score.toFixed(2) }}</span>
+              <span v-if="item.elapsed" class="text-text-tertiary dark:text-text-on-dark-tertiary ml-auto shrink-0">{{ item.elapsed }}s</span>
             </template>
             <template v-else>
               <span class="text-text-tertiary dark:text-text-on-dark-tertiary">○</span>
@@ -93,9 +94,9 @@
       </div>
 
       <!-- 主视图 + 合成控制 -->
-      <div class="flex gap-6">
+      <div class="flex flex-col lg:flex-row gap-4 lg:gap-6">
         <!-- 当前帧大图 -->
-        <div class="flex-1">
+        <div class="flex-1 min-w-0">
           <div v-if="currentPhoto" class="bg-black rounded-xl overflow-hidden flex items-center justify-center" style="min-height: 300px;">
             <img
               :src="`/api/photos/${currentPhoto.id}/thumbnail?size=lg`"
@@ -110,18 +111,35 @@
         </div>
 
         <!-- 右侧：识别+合成 -->
-        <div class="w-72 flex flex-col gap-4">
+        <div class="w-full lg:w-72 flex flex-col gap-4">
           <!-- 识别按钮 -->
           <div class="card-apple dark:bg-surface-card-dark p-4">
             <h3 class="font-semibold text-text-primary dark:text-text-on-dark mb-2 text-sm">鸟种识别</h3>
             <button
               @click="recognize"
-              :disabled="recognizing"
+              :disabled="recognizing || recognizeSubmitting"
               class="w-full py-1.5 btn-primary text-sm flex items-center justify-center gap-1.5"
             >
               <Zap class="w-4 h-4" />
-              {{ recognizing ? '识别中…' : '批量识别此组' }}
+              {{ recognizeSubmitting ? '提交中…' : recognizing ? `识别中… ${taskStore.recognizeProgress}%` : '批量识别此组' }}
             </button>
+            <div v-if="recognizeSubmitting || recognizing" class="mt-3 rounded-lg bg-surface-light dark:bg-black/20 p-3">
+              <div class="flex items-center justify-between text-xs mb-1.5">
+                <span class="text-text-primary dark:text-text-on-dark font-medium">
+                  {{ recognizeSubmitting ? '正在提交识别任务…' : taskStore.recognizeTitle }}
+                </span>
+                <span class="font-mono text-emerald-500">{{ recognizeSubmitting ? '...' : `${taskStore.recognizeProgress}%` }}</span>
+              </div>
+              <div class="w-full bg-black/5 dark:bg-white/10 rounded-full h-1.5">
+                <div
+                  class="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
+                  :style="{ width: `${recognizeSubmitting ? 12 : taskStore.recognizeProgress}%` }"
+                ></div>
+              </div>
+              <p class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary mt-1.5">
+                {{ recognizeSubmitting ? '后台任务创建后会自动开始轮询进度' : taskStore.recognizeStatusText }}
+              </p>
+            </div>
           </div>
 
           <!-- 合成视频 -->
@@ -149,11 +167,24 @@
               </div>
               <button
                 @click="synthesize"
-                :disabled="synthesizing"
+                :disabled="synthesizing || synthSubmitting"
                 class="w-full py-1.5 bg-text-primary dark:bg-white text-white dark:text-black text-sm rounded-lg hover:opacity-80 disabled:opacity-50 transition-colors"
               >
-                {{ synthesizing ? `合成中… ${synthProgress}%` : '生成视频' }}
+                {{ synthSubmitting ? '提交中…' : synthesizing ? `合成中… ${synthProgress}%` : '生成视频' }}
               </button>
+              <div v-if="synthSubmitting || synthesizing" class="rounded-lg bg-surface-light dark:bg-black/20 p-3">
+                <div class="flex items-center justify-between text-xs mb-1.5">
+                  <span class="text-text-primary dark:text-text-on-dark font-medium">{{ synthTitle }}</span>
+                  <span class="font-mono text-apple-blue">{{ synthSubmitting ? '...' : `${synthProgress}%` }}</span>
+                </div>
+                <div class="w-full bg-black/5 dark:bg-white/10 rounded-full h-1.5">
+                  <div
+                    class="bg-apple-blue h-1.5 rounded-full transition-all duration-300"
+                    :style="{ width: `${synthSubmitting ? 10 : synthProgress}%` }"
+                  ></div>
+                </div>
+                <p class="text-xs text-text-tertiary dark:text-text-on-dark-tertiary mt-1.5">{{ synthStatusText }}</p>
+              </div>
             </div>
           </div>
 
@@ -191,6 +222,22 @@ import { burstAPI } from '@/api/bursts'
 import { taskAPI } from '@/api/admin'
 import Spinner from '@/components/common/Spinner.vue'
 
+interface SynthesizePayload {
+  phase?: string
+  detail?: string
+  processed?: number
+  total?: number
+}
+
+function parseSynthesizePayload(resultJson: string | null): SynthesizePayload | null {
+  if (!resultJson) return null
+  try {
+    const payload = JSON.parse(resultJson)
+    if (payload && typeof payload === 'object') return payload as SynthesizePayload
+  } catch {}
+  return null
+}
+
 const route = useRoute()
 const burstStore = useBurstStore()
 const toast = useToastStore()
@@ -199,8 +246,14 @@ const loading = ref(true)
 const selectedIdx = ref(0)
 const framerate = ref(20)
 const resolution = ref('1920x1080')
+const recognizeSubmitting = ref(false)
+const synthSubmitting = ref(false)
 const synthesizing = ref(false)
 const synthProgress = ref(0)
+const synthPhase = ref<string | null>(null)
+const synthDetail = ref('')
+const synthProcessed = ref(0)
+const synthTotal = ref(0)
 const videoReady = ref(false)
 const videoVersion = ref(0)
 const logEl = ref<HTMLElement | null>(null)
@@ -208,6 +261,26 @@ const logEl = ref<HTMLElement | null>(null)
 const burst = computed(() => burstStore.current!)
 const currentPhoto = computed(() => burst.value?.photos?.[selectedIdx.value])
 const recognizing = computed(() => taskStore.recognizing)
+const synthTitle = computed(() => {
+  if (synthSubmitting.value) return '正在提交合成任务…'
+  return {
+    loading_frames: '正在收集连拍照片…',
+    extracting_raw: '正在提取 RAW 预览图…',
+    preparing_frames: '正在准备照片帧…',
+    encoding_video: '正在编码视频…',
+    finalizing: '正在写入视频文件…',
+    done: '视频合成完成',
+    error: '视频合成失败',
+  }[synthPhase.value ?? ''] ?? '正在生成视频…'
+})
+const synthStatusText = computed(() => {
+  if (synthSubmitting.value) return '后台任务创建后会自动开始轮询进度'
+  if (synthDetail.value) return synthDetail.value
+  if (synthTotal.value > 0 && synthProcessed.value > 0) {
+    return `已处理 ${synthProcessed.value} / ${synthTotal.value}`
+  }
+  return '后台正在处理，请稍候'
+})
 
 // 日志自动滚动到底部
 watch(() => taskStore.recognizeResults, () => {
@@ -230,6 +303,7 @@ onMounted(async () => {
 
 async function recognize() {
   if (taskStore.recognizing) return
+  recognizeSubmitting.value = true
   try {
     const res = await burstAPI.recognize(burst.value.id)
     const total = (res as any).total ?? 0
@@ -251,6 +325,8 @@ async function recognize() {
     }, 2000)
   } catch (e: any) {
     toast.error(e.message)
+  } finally {
+    recognizeSubmitting.value = false
   }
 }
 
@@ -261,17 +337,30 @@ async function stopRecognize() {
 }
 
 async function synthesize() {
+  synthSubmitting.value = true
   synthesizing.value = true
   synthProgress.value = 0
+  synthPhase.value = null
+  synthDetail.value = ''
+  synthProcessed.value = 0
+  synthTotal.value = 0
   videoReady.value = false
   try {
     const task = await burstAPI.synthesize(burst.value.id, framerate.value, resolution.value)
     toast.info('合成任务已提交')
     const taskId = (task as any).task_id ?? task.id
+    synthSubmitting.value = false
+    taskStore.setActiveTask('正在生成连拍视频…', 0)
     await new Promise<void>((resolve, reject) => {
       const tick = async () => {
         const t = await taskAPI.get(taskId)
         synthProgress.value = t.progress ?? 0
+        const payload = parseSynthesizePayload(t.result_json)
+        synthPhase.value = payload?.phase ?? null
+        synthDetail.value = payload?.detail ?? ''
+        synthProcessed.value = typeof payload?.processed === 'number' ? payload.processed : 0
+        synthTotal.value = typeof payload?.total === 'number' ? payload.total : 0
+        taskStore.setActiveTask(synthTitle.value, t.progress ?? 0)
         if (t.status === 'done') return resolve()
         if (t.status === 'error') return reject(new Error(t.error_msg ?? '合成失败'))
         setTimeout(tick, 1500)
@@ -280,11 +369,14 @@ async function synthesize() {
     })
     videoVersion.value++
     videoReady.value = true
+    await burstStore.fetchBurst(burst.value.id)
     toast.success('视频合成完成')
   } catch (e: any) {
     toast.error(e.message)
   } finally {
+    synthSubmitting.value = false
     synthesizing.value = false
+    taskStore.clearActiveTask()
   }
 }
 </script>
